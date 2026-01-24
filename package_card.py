@@ -41,6 +41,7 @@ class PackageCard(Gtk.Frame):
 
         self._deps_loading = False
         self._suppress_version_handler = False
+        self.dependency_filter_state = "all"
 
         self.add_css_class("card")
 
@@ -163,9 +164,19 @@ class PackageCard(Gtk.Frame):
         self.dependencies_label.set_hexpand(True)
         self.dependencies_header.append(self.dependencies_label)
 
+        self.dependencies_filter_checkbox = Gtk.CheckButton(label="Installed")
+        self.dependencies_filter_checkbox.connect("clicked", self._on_dependencies_filter_clicked)
+        self.dependencies_header.append(self.dependencies_filter_checkbox)
+
+        self.add_all_dependencies_button = Gtk.Button(label="+ all")
+        self.add_all_dependencies_button.connect("clicked", self._on_add_all_dependencies)
+        self.dependencies_header.append(self.add_all_dependencies_button)
+
         self.refresh_dependencies_button = Gtk.Button(label="Refresh")
         self.refresh_dependencies_button.connect("clicked", self._on_refresh_dependencies)
         self.dependencies_header.append(self.refresh_dependencies_button)
+
+        self._sync_dependencies_filter_checkbox()
 
         self.deps_revealer = Gtk.Revealer()
         self.deps_revealer.set_reveal_child(False)
@@ -226,13 +237,19 @@ class PackageCard(Gtk.Frame):
     def _rebuild_dependencies_list(self) -> None:
         clear_box_children(self.dependencies_list_container)
 
-        count = len(self.node.dependencies)
-        if count == 0:
-            placeholder = Gtk.Label(label="(no dependencies)", xalign=0.0)
+        total_count = len(self.node.dependencies)
+        filtered_dependencies = self._filtered_dependencies()
+        filtered_count = len(filtered_dependencies)
+
+        if filtered_count == 0:
+            label = "(no dependencies)"
+            if total_count > 0:
+                label = "(no dependencies match filter)"
+            placeholder = Gtk.Label(label=label, xalign=0.0)
             placeholder.add_css_class("muted")
             self.dependencies_list_container.append(placeholder)
         else:
-            for dependency_node in self.node.dependencies:
+            for dependency_node in filtered_dependencies:
                 dependency_card = PackageCard(
                     node=dependency_node,
                     depth=self.depth + 1,
@@ -246,7 +263,10 @@ class PackageCard(Gtk.Frame):
         if self._deps_loading:
             self.dependencies_label.set_label("Dependencies (loading...)")
         elif self.node.dependencies_loaded:
-            self.dependencies_label.set_label(f"Dependencies ({count})")
+            if filtered_count == total_count:
+                self.dependencies_label.set_label(f"Dependencies ({total_count})")
+            else:
+                self.dependencies_label.set_label(f"Dependencies ({filtered_count}/{total_count})")
         else:
             self.dependencies_label.set_label("Dependencies")
 
@@ -264,20 +284,17 @@ class PackageCard(Gtk.Frame):
         model = Gtk.StringList.new(self.node.versions)
 
         self._suppress_version_handler = True
-        try:
-            self.versions_dropdown.set_model(model)
-
-            for index in range(model.get_n_items()):
-                item = model.get_item(index)
-                if item is None:
-                    continue
-                if item.get_string() == self.node.selected_version:
-                    self.versions_dropdown.set_selected(index)
-                    return
-
-            self.versions_dropdown.set_selected(0)
-        finally:
-            self._suppress_version_handler = False
+        self.versions_dropdown.set_model(model)
+        selected_index = 0
+        for index in range(model.get_n_items()):
+            item = model.get_item(index)
+            if item is None:
+                continue
+            if item.get_string() == self.node.selected_version:
+                selected_index = index
+                break
+        self.versions_dropdown.set_selected(selected_index)
+        self._suppress_version_handler = False
 
     def _start_dependencies_load(self, force_reload: bool) -> None:
         if self._deps_loading:
@@ -338,6 +355,39 @@ class PackageCard(Gtk.Frame):
 
     def _on_refresh_dependencies(self, _button: Gtk.Button) -> None:
         self._start_dependencies_load(force_reload=True)
+
+    def _filtered_dependencies(self) -> list[PackageNode]:
+        if self.dependency_filter_state == "installed":
+            return [dependency for dependency in self.node.dependencies if dependency.installed]
+        if self.dependency_filter_state == "not_installed":
+            return [dependency for dependency in self.node.dependencies if not dependency.installed]
+        return list(self.node.dependencies)
+
+    def _sync_dependencies_filter_checkbox(self) -> None:
+        if self.dependency_filter_state == "all":
+            self.dependencies_filter_checkbox.set_inconsistent(False)
+            self.dependencies_filter_checkbox.set_active(False)
+            return
+        if self.dependency_filter_state == "installed":
+            self.dependencies_filter_checkbox.set_inconsistent(False)
+            self.dependencies_filter_checkbox.set_active(True)
+            return
+        self.dependencies_filter_checkbox.set_inconsistent(True)
+        self.dependencies_filter_checkbox.set_active(True)
+
+    def _on_dependencies_filter_clicked(self, _button: Gtk.CheckButton) -> None:
+        if self.dependency_filter_state == "all":
+            self.dependency_filter_state = "installed"
+        elif self.dependency_filter_state == "installed":
+            self.dependency_filter_state = "not_installed"
+        else:
+            self.dependency_filter_state = "all"
+        self._sync_dependencies_filter_checkbox()
+        self._rebuild_dependencies_list()
+
+    def _on_add_all_dependencies(self, _button: Gtk.Button) -> None:
+        for dependency_node in self._filtered_dependencies():
+            self.add_to_primary_callback(dependency_node)
 
     def _on_add_to_primary(self, _button: Gtk.Button) -> None:
         self.add_to_primary_callback(self.node)
