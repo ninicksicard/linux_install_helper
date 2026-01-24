@@ -157,9 +157,14 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         add_button.connect("clicked", self._on_add_primary_clicked)
         add_row.append(add_button)
 
+        primary_paned = Gtk.Paned.new(Gtk.Orientation.VERTICAL)
+        primary_paned.set_wide_handle(True)
+        primary_paned.set_vexpand(True)
+        container.append(primary_paned)
+
         list_frame = Gtk.Frame()
         list_frame.add_css_class("output-card")
-        container.append(list_frame)
+        primary_paned.set_start_child(list_frame)
 
         list_root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         list_frame.set_child(list_root)
@@ -186,7 +191,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
 
         self.output_expander = Gtk.Expander(label="Output")
         self.output_expander.set_expanded(False)
-        container.append(self.output_expander)
+        primary_paned.set_end_child(self.output_expander)
 
         output_frame = Gtk.Frame()
         output_frame.add_css_class("output-card")
