@@ -157,9 +157,16 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         add_button.connect("clicked", self._on_add_primary_clicked)
         add_row.append(add_button)
 
+        paned = Gtk.Paned.new(Gtk.Orientation.VERTICAL)
+        paned.set_wide_handle(True)
+        paned.set_vexpand(True)
+        paned.set_resize_start_child(True)
+        paned.set_resize_end_child(True)
+        container.append(paned)
+
         list_frame = Gtk.Frame()
         list_frame.add_css_class("output-card")
-        container.append(list_frame)
+        paned.set_start_child(list_frame)
 
         list_root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         list_frame.set_child(list_root)
@@ -186,7 +193,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
 
         self.output_expander = Gtk.Expander(label="Output")
         self.output_expander.set_expanded(False)
-        container.append(self.output_expander)
+        paned.set_end_child(self.output_expander)
 
         output_frame = Gtk.Frame()
         output_frame.add_css_class("output-card")
@@ -219,6 +226,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         self.log_view.set_cursor_visible(False)
         log_scrolled.set_child(self.log_view)
 
+        paned.set_position(420)
         return container
 
     def append_log(self, text: str) -> None:
