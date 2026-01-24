@@ -163,6 +163,16 @@ class PackageCard(Gtk.Frame):
         self.dependencies_label.set_hexpand(True)
         self.dependencies_header.append(self.dependencies_label)
 
+        self.dependencies_filter_dropdown = Gtk.DropDown(
+            model=Gtk.StringList.new(["all", "installed", "not installed"])
+        )
+        self.dependencies_filter_dropdown.connect("notify::selected", self._on_dependency_filter_selected)
+        self.dependencies_header.append(self.dependencies_filter_dropdown)
+
+        self.add_listed_button = Gtk.Button(label="Add listed")
+        self.add_listed_button.connect("clicked", self._on_add_listed_dependencies)
+        self.dependencies_header.append(self.add_listed_button)
+
         self.refresh_dependencies_button = Gtk.Button(label="Refresh")
         self.refresh_dependencies_button.connect("clicked", self._on_refresh_dependencies)
         self.dependencies_header.append(self.refresh_dependencies_button)
@@ -226,13 +236,20 @@ class PackageCard(Gtk.Frame):
     def _rebuild_dependencies_list(self) -> None:
         clear_box_children(self.dependencies_list_container)
 
-        count = len(self.node.dependencies)
+        dependencies = self._filtered_dependencies()
+        total_count = len(self.node.dependencies)
+        count = len(dependencies)
+        filter_mode = self._current_dependency_filter()
+
         if count == 0:
-            placeholder = Gtk.Label(label="(no dependencies)", xalign=0.0)
+            placeholder_label = "(no dependencies)"
+            if total_count and filter_mode != "all":
+                placeholder_label = "(no matching dependencies)"
+            placeholder = Gtk.Label(label=placeholder_label, xalign=0.0)
             placeholder.add_css_class("muted")
             self.dependencies_list_container.append(placeholder)
         else:
-            for dependency_node in self.node.dependencies:
+            for dependency_node in dependencies:
                 dependency_card = PackageCard(
                     node=dependency_node,
                     depth=self.depth + 1,
@@ -246,9 +263,26 @@ class PackageCard(Gtk.Frame):
         if self._deps_loading:
             self.dependencies_label.set_label("Dependencies (loading...)")
         elif self.node.dependencies_loaded:
-            self.dependencies_label.set_label(f"Dependencies ({count})")
+            if filter_mode == "all":
+                self.dependencies_label.set_label(f"Dependencies ({count})")
+            else:
+                self.dependencies_label.set_label(f"Dependencies ({count} of {total_count})")
         else:
             self.dependencies_label.set_label("Dependencies")
+
+    def _current_dependency_filter(self) -> str:
+        selected_item = self.dependencies_filter_dropdown.get_selected_item()
+        if selected_item is None:
+            return "all"
+        return selected_item.get_string()
+
+    def _filtered_dependencies(self) -> list[PackageNode]:
+        filter_mode = self._current_dependency_filter()
+        if filter_mode == "installed":
+            return [dependency for dependency in self.node.dependencies if dependency.installed]
+        if filter_mode == "not installed":
+            return [dependency for dependency in self.node.dependencies if not dependency.installed]
+        return list(self.node.dependencies)
 
     def _sync_header_text(self) -> None:
         text = self.node.name
@@ -335,6 +369,17 @@ class PackageCard(Gtk.Frame):
         if is_descendant_of_button(picked):
             return
         self._toggle_dependencies()
+
+    def _on_dependency_filter_selected(self, _dropdown: Gtk.DropDown, _param_spec) -> None:
+        self._rebuild_dependencies_list()
+
+    def _on_add_listed_dependencies(self, _button: Gtk.Button) -> None:
+        if self._deps_loading or not self.node.dependencies_loaded:
+            self._start_dependencies_load(force_reload=False)
+            return
+
+        for dependency_node in self._filtered_dependencies():
+            self.add_to_primary_callback(dependency_node)
 
     def _on_refresh_dependencies(self, _button: Gtk.Button) -> None:
         self._start_dependencies_load(force_reload=True)
