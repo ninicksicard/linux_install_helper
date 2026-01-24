@@ -41,6 +41,7 @@ class PackageCard(Gtk.Frame):
 
         self._deps_loading = False
         self._suppress_version_handler = False
+        self._dependencies_filter_state = "all"
 
         self.add_css_class("card")
 
@@ -163,6 +164,14 @@ class PackageCard(Gtk.Frame):
         self.dependencies_label.set_hexpand(True)
         self.dependencies_header.append(self.dependencies_label)
 
+        self.installed_filter_button = Gtk.CheckButton(label="Installed")
+        self.installed_filter_button.connect("clicked", self._on_dependencies_filter_clicked)
+        self.dependencies_header.append(self.installed_filter_button)
+
+        self.add_all_dependencies_button = Gtk.Button(label="+ all")
+        self.add_all_dependencies_button.connect("clicked", self._on_add_all_dependencies)
+        self.dependencies_header.append(self.add_all_dependencies_button)
+
         self.refresh_dependencies_button = Gtk.Button(label="Refresh")
         self.refresh_dependencies_button.connect("clicked", self._on_refresh_dependencies)
         self.dependencies_header.append(self.refresh_dependencies_button)
@@ -175,7 +184,26 @@ class PackageCard(Gtk.Frame):
         self.dependencies_list_container.add_css_class("subsection-list")
         self.deps_revealer.set_child(self.dependencies_list_container)
 
+        self._sync_dependencies_filter_button()
         self._rebuild_dependencies_list()
+
+    def _sync_dependencies_filter_button(self) -> None:
+        if self._dependencies_filter_state == "all":
+            self.installed_filter_button.set_active(False)
+            self.installed_filter_button.set_inconsistent(False)
+        elif self._dependencies_filter_state == "installed":
+            self.installed_filter_button.set_active(True)
+            self.installed_filter_button.set_inconsistent(False)
+        else:
+            self.installed_filter_button.set_active(True)
+            self.installed_filter_button.set_inconsistent(True)
+
+    def _get_visible_dependencies(self) -> list[PackageNode]:
+        if self._dependencies_filter_state == "installed":
+            return [node for node in self.node.dependencies if node.installed]
+        if self._dependencies_filter_state == "not_installed":
+            return [node for node in self.node.dependencies if not node.installed]
+        return list(self.node.dependencies)
 
     def _build_details_section(self) -> None:
         self.details_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -226,13 +254,15 @@ class PackageCard(Gtk.Frame):
     def _rebuild_dependencies_list(self) -> None:
         clear_box_children(self.dependencies_list_container)
 
-        count = len(self.node.dependencies)
+        visible_dependencies = self._get_visible_dependencies()
+        count = len(visible_dependencies)
         if count == 0:
-            placeholder = Gtk.Label(label="(no dependencies)", xalign=0.0)
+            placeholder_text = "(no dependencies)" if not self.node.dependencies else "(no matching dependencies)"
+            placeholder = Gtk.Label(label=placeholder_text, xalign=0.0)
             placeholder.add_css_class("muted")
             self.dependencies_list_container.append(placeholder)
         else:
-            for dependency_node in self.node.dependencies:
+            for dependency_node in visible_dependencies:
                 dependency_card = PackageCard(
                     node=dependency_node,
                     depth=self.depth + 1,
@@ -338,6 +368,20 @@ class PackageCard(Gtk.Frame):
 
     def _on_refresh_dependencies(self, _button: Gtk.Button) -> None:
         self._start_dependencies_load(force_reload=True)
+
+    def _on_dependencies_filter_clicked(self, _button: Gtk.CheckButton) -> None:
+        if self._dependencies_filter_state == "all":
+            self._dependencies_filter_state = "installed"
+        elif self._dependencies_filter_state == "installed":
+            self._dependencies_filter_state = "not_installed"
+        else:
+            self._dependencies_filter_state = "all"
+        self._sync_dependencies_filter_button()
+        self._rebuild_dependencies_list()
+
+    def _on_add_all_dependencies(self, _button: Gtk.Button) -> None:
+        for dependency_node in self._get_visible_dependencies():
+            self.add_to_primary_callback(dependency_node)
 
     def _on_add_to_primary(self, _button: Gtk.Button) -> None:
         self.add_to_primary_callback(self.node)
