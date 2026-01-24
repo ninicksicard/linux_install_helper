@@ -27,6 +27,7 @@ class PackageCard(Gtk.Frame):
         node: PackageNode,
         depth: int,
         add_to_primary_callback: Callable[[PackageNode], None],
+        remove_from_primary_callback: Callable[["PackageCard"], None] | None,
         ensure_dependencies_callback: Callable[[PackageNode], None],
         run_command_callback: Callable[[str], None],
     ) -> None:
@@ -34,6 +35,7 @@ class PackageCard(Gtk.Frame):
         self.node = node
         self.depth = depth
         self.add_to_primary_callback = add_to_primary_callback
+        self.remove_from_primary_callback = remove_from_primary_callback
         self.ensure_dependencies_callback = ensure_dependencies_callback
         self.run_command_callback = run_command_callback
 
@@ -72,6 +74,11 @@ class PackageCard(Gtk.Frame):
         self.add_button_folded.set_visible(self.node.is_dependency)
         self.add_button_folded.connect("clicked", self._on_add_to_primary)
         self.header_area.append(self.add_button_folded)
+
+        self.remove_button = Gtk.Button(label="-")
+        self.remove_button.set_visible(not self.node.is_dependency)
+        self.remove_button.connect("clicked", self._on_remove_from_primary)
+        self.header_area.append(self.remove_button)
 
         # Body (revealer).
         self.body_revealer = Gtk.Revealer()
@@ -230,6 +237,7 @@ class PackageCard(Gtk.Frame):
                     node=dependency_node,
                     depth=self.depth + 1,
                     add_to_primary_callback=self.add_to_primary_callback,
+                    remove_from_primary_callback=self.remove_from_primary_callback,
                     ensure_dependencies_callback=self.ensure_dependencies_callback,
                     run_command_callback=self.run_command_callback,
                 )
@@ -333,6 +341,11 @@ class PackageCard(Gtk.Frame):
 
     def _on_add_to_primary(self, _button: Gtk.Button) -> None:
         self.add_to_primary_callback(self.node)
+
+    def _on_remove_from_primary(self, _button: Gtk.Button) -> None:
+        if self.remove_from_primary_callback is None:
+            return
+        self.remove_from_primary_callback(self)
 
     def _on_command_changed(self, entry: Gtk.Entry) -> None:
         self.node.command_line = entry.get_text()

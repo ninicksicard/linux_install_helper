@@ -389,6 +389,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
                     node=node,
                     depth=0,
                     add_to_primary_callback=self.add_dependency_to_primary,
+                    remove_from_primary_callback=self.remove_primary_card,
                     ensure_dependencies_callback=ensure_dependencies_for_node,
                     run_command_callback=self.run_and_log,
                 )
@@ -404,6 +405,13 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         if node.name in self.primary_names:
             return
         self.queue_add_primary_from_text(node.name)
+
+    def remove_primary_card(self, card: PackageCard) -> None:
+        if card.node.name not in self.primary_names:
+            return
+        self.primary_names.remove(card.node.name)
+        self.primary_list_box.remove(card)
+        self._update_status()
 
     def _rebuild_search_results(self) -> None:
         clear_box_children(self.search_list_box)
