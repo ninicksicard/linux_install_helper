@@ -116,7 +116,7 @@ def clear_box_children(container: Gtk.Box) -> None:
 def is_descendant_of_button(widget: Gtk.Widget | None) -> bool:
     current = widget
     while current is not None:
-        if isinstance(current, Gtk.Button):
+        if isinstance(current, (Gtk.Button, Gtk.CheckButton)):
             return True
         current = current.get_parent()
     return False

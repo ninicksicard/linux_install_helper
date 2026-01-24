@@ -41,6 +41,7 @@ class PackageCard(Gtk.Frame):
 
         self._deps_loading = False
         self._suppress_version_handler = False
+        self.dependencies_installed_filter = "all"
 
         self.add_css_class("card")
 
@@ -163,6 +164,15 @@ class PackageCard(Gtk.Frame):
         self.dependencies_label.set_hexpand(True)
         self.dependencies_header.append(self.dependencies_label)
 
+        self.dependencies_installed_filter_check = Gtk.CheckButton(label="Installed")
+        self.dependencies_installed_filter_check.connect("clicked", self._on_dependencies_filter_clicked)
+        self.dependencies_header.append(self.dependencies_installed_filter_check)
+        self._set_dependencies_filter_state()
+
+        self.add_all_dependencies_button = Gtk.Button(label="+ all")
+        self.add_all_dependencies_button.connect("clicked", self._on_add_all_dependencies)
+        self.dependencies_header.append(self.add_all_dependencies_button)
+
         self.refresh_dependencies_button = Gtk.Button(label="Refresh")
         self.refresh_dependencies_button.connect("clicked", self._on_refresh_dependencies)
         self.dependencies_header.append(self.refresh_dependencies_button)
@@ -226,13 +236,19 @@ class PackageCard(Gtk.Frame):
     def _rebuild_dependencies_list(self) -> None:
         clear_box_children(self.dependencies_list_container)
 
-        count = len(self.node.dependencies)
-        if count == 0:
+        filtered_dependencies = self._filtered_dependencies()
+        total_count = len(self.node.dependencies)
+        filtered_count = len(filtered_dependencies)
+        if total_count == 0:
             placeholder = Gtk.Label(label="(no dependencies)", xalign=0.0)
             placeholder.add_css_class("muted")
             self.dependencies_list_container.append(placeholder)
         else:
-            for dependency_node in self.node.dependencies:
+            if filtered_count == 0:
+                placeholder = Gtk.Label(label="(no matches)", xalign=0.0)
+                placeholder.add_css_class("muted")
+                self.dependencies_list_container.append(placeholder)
+            for dependency_node in filtered_dependencies:
                 dependency_card = PackageCard(
                     node=dependency_node,
                     depth=self.depth + 1,
@@ -246,7 +262,7 @@ class PackageCard(Gtk.Frame):
         if self._deps_loading:
             self.dependencies_label.set_label("Dependencies (loading...)")
         elif self.node.dependencies_loaded:
-            self.dependencies_label.set_label(f"Dependencies ({count})")
+            self.dependencies_label.set_label(f"Dependencies ({filtered_count})")
         else:
             self.dependencies_label.set_label("Dependencies")
 
@@ -302,6 +318,38 @@ class PackageCard(Gtk.Frame):
             GLib.idle_add(apply_results)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _filtered_dependencies(self) -> list[PackageNode]:
+        if self.dependencies_installed_filter == "installed":
+            return [dependency for dependency in self.node.dependencies if dependency.installed]
+        if self.dependencies_installed_filter == "not_installed":
+            return [dependency for dependency in self.node.dependencies if not dependency.installed]
+        return self.node.dependencies
+
+    def _set_dependencies_filter_state(self) -> None:
+        if self.dependencies_installed_filter == "installed":
+            self.dependencies_installed_filter_check.set_active(True)
+            self.dependencies_installed_filter_check.set_inconsistent(False)
+        elif self.dependencies_installed_filter == "not_installed":
+            self.dependencies_installed_filter_check.set_active(False)
+            self.dependencies_installed_filter_check.set_inconsistent(True)
+        else:
+            self.dependencies_installed_filter_check.set_active(False)
+            self.dependencies_installed_filter_check.set_inconsistent(False)
+
+    def _on_dependencies_filter_clicked(self, _button: Gtk.CheckButton) -> None:
+        if self.dependencies_installed_filter == "all":
+            self.dependencies_installed_filter = "installed"
+        elif self.dependencies_installed_filter == "installed":
+            self.dependencies_installed_filter = "not_installed"
+        else:
+            self.dependencies_installed_filter = "all"
+        self._set_dependencies_filter_state()
+        self._rebuild_dependencies_list()
+
+    def _on_add_all_dependencies(self, _button: Gtk.Button) -> None:
+        for dependency_node in self._filtered_dependencies():
+            self.add_to_primary_callback(dependency_node)
 
     def _toggle_body(self) -> None:
         is_open = self.body_revealer.get_reveal_child()
