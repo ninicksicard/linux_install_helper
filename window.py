@@ -226,17 +226,20 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         end_iter = buffer.get_end_iter()
         buffer.insert(end_iter, text)
 
-    def _strip_simple_sudo_prefix(self, command: str) -> tuple[bool, str]:
+    @staticmethod
+    def _strip_simple_sudo_prefix(command: str) -> tuple[bool, str]:
         command_stripped = command.strip()
         if not command_stripped.startswith("sudo "):
             return False, command_stripped
         return True, command_stripped[len("sudo ") :].strip()
 
-    def _needs_shell(self, command: str) -> bool:
+    @staticmethod
+    def _needs_shell(command: str) -> bool:
         operators = ["|", ">", "<", "&&", "||", ";", "$(", "`"]
         return any(op in command for op in operators)
 
-    def _maybe_inject_yes_flag_for_dnf(self, tokens: list[str]) -> list[str]:
+    @staticmethod
+    def _maybe_inject_yes_flag_for_dnf(tokens: list[str]) -> list[str]:
         if not tokens:
             return tokens
 
@@ -255,7 +258,8 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
 
         return tokens[:2] + ["-y"] + tokens[2:]
 
-    def _normalize_program_path(self, tokens: list[str]) -> list[str]:
+    @staticmethod
+    def _normalize_program_path(tokens: list[str]) -> list[str]:
         if not tokens:
             return tokens
 
