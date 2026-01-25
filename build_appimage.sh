@@ -83,7 +83,7 @@ tools_directory="${build_directory}/tools"
 output_directory="${build_directory}/out"
 
 linuxdeploy_appimage_path="${tools_directory}/linuxdeploy-x86_64.AppImage"
-linuxdeploy_gtk_plugin_appimage_path="${tools_directory}/linuxdeploy-plugin-gtk-x86_64.AppImage"
+linuxdeploy_gtk_plugin_path="${tools_directory}/linuxdeploy-plugin-gtk.sh"
 
 desktop_file_path="${packaging_directory}/${application_identifier}.desktop"
 icon_file_path="${packaging_directory}/${application_identifier}.png"
@@ -218,9 +218,7 @@ cp -a "${pyinstaller_output_program_directory}/." "${application_directory}/usr/
 download_file() {
   local url="$1"
   local destination_path="$2"
-
-  # A crude sanity check so we do not treat an HTML error page or truncated file as "good".
-  local minimum_bytes=1048576
+  local minimum_bytes="${3:-1048576}"
 
   if [[ -f "${destination_path}" ]]; then
     local existing_size
@@ -265,17 +263,18 @@ log_info "Ensuring linuxdeploy tools are available..."
 download_file \
   "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage" \
   "${linuxdeploy_appimage_path}"
-log_info "downloading linuxdeploy-plugin-gtk-x86_64.AppImage"
+log_info "downloading linuxdeploy-plugin-gtk.sh"
 download_file \
   "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh" \
-  "${linuxdeploy_gtk_plugin_appimage_path}"
+  "${linuxdeploy_gtk_plugin_path}" \
+  1024
 
 log_info "Marking linuxdeploy tools executable..."
-chmod +x "${linuxdeploy_appimage_path}" "${linuxdeploy_gtk_plugin_appimage_path}"
+chmod +x "${linuxdeploy_appimage_path}" "${linuxdeploy_gtk_plugin_path}"
 
 # linuxdeploy discovers plugins by name (linuxdeploy-plugin-<name>) in PATH when using --plugin <name>
 log_info "Creating PATH-visible plugin symlink..."
-ln -sf "${linuxdeploy_gtk_plugin_appimage_path}" "${tools_directory}/linuxdeploy-plugin-gtk"
+ln -sf "${linuxdeploy_gtk_plugin_path}" "${tools_directory}/linuxdeploy-plugin-gtk"
 chmod +x "${tools_directory}/linuxdeploy-plugin-gtk"
 
 export PATH="${tools_directory}:${PATH}"
