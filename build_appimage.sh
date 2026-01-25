@@ -21,6 +21,7 @@ pyinstaller_dist_directory="${build_directory}/pyinstaller_dist"
 application_directory="${build_directory}/AppDir"
 packaging_directory="${build_directory}/packaging"
 tools_directory="${build_directory}/tools"
+runtime_tools_directory=""
 output_directory="${build_directory}/out"
 
 linuxdeploy_appimage_path="${tools_directory}/linuxdeploy-x86_64.AppImage"
@@ -127,10 +128,19 @@ fi
 
 chmod +x "${linuxdeploy_appimage_path}" "${linuxdeploy_gtk_plugin_appimage_path}"
 
+# linuxdeploy and plugin AppImages cannot execute on noexec mounts, so copy to a runtime directory.
+runtime_tools_directory="$(mktemp -d "${TMPDIR:-/tmp}/linux-install-helper-runtime-tools-XXXXXX")"
+cp -a "${linuxdeploy_appimage_path}" "${runtime_tools_directory}/linuxdeploy-x86_64.AppImage"
+cp -a "${linuxdeploy_gtk_plugin_appimage_path}" "${runtime_tools_directory}/linuxdeploy-plugin-gtk-x86_64.AppImage"
+chmod +x "${runtime_tools_directory}/linuxdeploy-x86_64.AppImage" "${runtime_tools_directory}/linuxdeploy-plugin-gtk-x86_64.AppImage"
+
 # linuxdeploy discovers plugins by name (linuxdeploy-plugin-<name>) in PATH when using --plugin <name>
-ln -sf "${linuxdeploy_gtk_plugin_appimage_path}" "${tools_directory}/linuxdeploy-plugin-gtk"
-chmod +x "${tools_directory}/linuxdeploy-plugin-gtk"
-export PATH="${tools_directory}:${PATH}"
+ln -sf "${runtime_tools_directory}/linuxdeploy-plugin-gtk-x86_64.AppImage" "${runtime_tools_directory}/linuxdeploy-plugin-gtk"
+chmod +x "${runtime_tools_directory}/linuxdeploy-plugin-gtk"
+export PATH="${runtime_tools_directory}:${PATH}"
+
+linuxdeploy_appimage_path="${runtime_tools_directory}/linuxdeploy-x86_64.AppImage"
+linuxdeploy_gtk_plugin_appimage_path="${runtime_tools_directory}/linuxdeploy-plugin-gtk-x86_64.AppImage"
 
 # GTK plugin supports GTK4; we set it explicitly to avoid auto-detect surprises
 export DEPLOY_GTK_VERSION=4
