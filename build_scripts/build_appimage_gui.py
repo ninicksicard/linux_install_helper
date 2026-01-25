@@ -71,7 +71,7 @@ class BuildContext:
 
 def make_default_context(project_root_directory: Path) -> BuildContext:
     python_executable = os.environ.get("PYTHON_EXECUTABLE", "python3.14")
-    entrypoint_python_file = os.environ.get("ENTRYPOINT_PYTHON_FILE", "main_gtk4.py")
+    entrypoint_python_file = os.environ.get("ENTRYPOINT_PYTHON_FILE", "../src/main_gtk4.py")
     application_identifier = os.environ.get("APPLICATION_IDENTIFIER", "linux-install-helper")
     application_display_name = os.environ.get("APPLICATION_DISPLAY_NAME", "Linux Install Helper")
 

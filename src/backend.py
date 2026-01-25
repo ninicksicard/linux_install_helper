@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import subprocess
 import threading
-from typing import Tuple
 
 import helpers
 from models import PackageNode
