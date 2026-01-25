@@ -1,59 +1,71 @@
-# Linux Install Helper
+# Linux Install Helper (GTK4)
 
-Linux Install Helper is a graphical user interface for searching, tracking, and running package installations on common Linux distributions. It focuses on package manager workflows such as searching repositories, listing installed packages, viewing versions, and building install or remove commands with explicit confirmations.
+A small GTK4 desktop app that helps you **search packages**, **inspect dependency trees**, and **run package-manager actions** with a visible, editable command preview.
 
-## What it does
+This is aimed at "I know what I want to install, but I want a clearer view of what is installed, what depends on what, and what command will actually run".
 
-- Search available packages in configured repositories.
-- Show installed packages with optional filtering.
-- Add primary packages and inspect their dependencies.
-- Show installed and available versions when the package manager supports it.
-- Build and run install or remove commands that use the selected package manager.
-- Provide a live output log for command execution.
+## Screenshots
 
-## How it works
+Search results (left) + primary packages with dependency expansion (right):
 
-The application is written in Python and uses GTK4 for the user interface. The backend shell commands call the active package manager and supporting tools to fetch package lists, available versions, and dependency information. It detects a default installer on startup and uses that installer for actions unless a command input includes another one. Package actions are executed through `sudo` commands constructed from the selected action, installer, and version.
+![Search and dependency view](misc/Screenshot%20from%202026-01-25%2010-56-21.png)
 
-Supported package managers include:
+Searching for a term and adding packages to the primary list:
 
-- dnf, dnf5, and yum
-- apt, apt-get, and nala
-- pacman, yay, and paru
+![Repo search example](misc/Screenshot%20from%202026-01-25%2010-56-34.png)
+
+Pasting a full install command and inspecting dependencies:
+
+![Paste command example](misc/Screenshot%20from%202026-01-25%2011-01-37.png)
+
+## Key features
+
+- Repo search (when supported by the active installer)
+- List installed packages with filtering and cancel support
+- "Primary packages" list where each primary can expand into a dependency list
+- Installed status + installed version indicator
+- Version listing (best-effort, depends on the installer)
+- Builds an explicit command line you can review before running
+- Output log panel for command execution
+
+## Supported package managers
+
+The code includes support for the following installers (behavior varies by installer):
+
+- dnf, dnf5, yum
+- apt, apt-get, nala
+- pacman, yay, paru
 - zypper
 - apk
 - brew
 
-## How to use it
+Important current limitation:
+- Automatic default-installer detection is currently Fedora/RHEL-family focused (dnf5/dnf). On other distros, you can still use the app by **pasting a command that includes your installer** (example: `sudo apt install ...` or `sudo pacman -S ...`), which will switch the package context for that added primary.
 
-### Run from source
+## How it runs commands (safety + privileges)
 
-1. Install Python and GTK4 bindings for Python (PyGObject) using your distribution packages.
-2. From the repository root, run:
+- The UI always shows a command line preview for the action you are about to run.
+- If a command starts with a simple `sudo ...`, the app strips `sudo` and uses **pkexec** for privilege escalation.
+- Commands that do not use `sudo` are run without elevation.
 
-```
-python3 src/main_gtk4.py
-```
+This means you may see a PolicyKit prompt (pkexec) when running install/remove actions.
 
-The window opens with a search panel on the left and a primary package list on the right. Use the search entry to find packages in repositories or select the installed filter to browse installed packages. Use the add entry to add a package name or paste an install command. Use the action buttons on each package card to install, remove, or refresh status.
+## How the action buttons work (Install / Reinstall / Remove)
 
-### Build an AppImage
+The **Install**, **Reinstall**, and **Remove** buttons do **not** execute anything by themselves.
 
-The repository includes a build script and a graphical build helper. The build script creates a virtual environment, runs PyInstaller, and assembles an AppImage using linuxdeploy.
+They only **compose/update the command text** in the command entry field (so you can review or edit it).
+To actually run the command, you must click **Run**.
+![Screenshot from 2026-01-25 11-22-16.png](misc/Screenshot%20from%202026-01-25%2011-22-16.png)
 
-```
-./build_scripts/build_appimage.sh
-```
+## Requirements
 
-The graphical build helper can be launched with:
+- Python 3.10+
+- GTK4 + PyGObject (installed from your distro packages)
+- PolicyKit / pkexec (for privileged install/remove actions)
 
-```
-python3 build_scripts/build_appimage_gui.py
-```
+### Install dependencies (examples)
 
-Build artifacts are placed under `build_appimage`, and the final AppImage is written to `build_appimage/out`.
-
-## Notes
-
-- Running package actions uses `sudo`, so a terminal prompt or a policy kit prompt may appear depending on system configuration.
-- Package search and version availability depend on the capabilities and metadata of the selected installer.
+Fedora:
+```bash
+sudo dnf install -y python3 python3-gobject gtk4
