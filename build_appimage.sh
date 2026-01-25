@@ -130,6 +130,20 @@ chmod +x "${linuxdeploy_appimage_path}" "${linuxdeploy_gtk_plugin_appimage_path}
 # linuxdeploy discovers plugins by name (linuxdeploy-plugin-<name>) in PATH when using --plugin <name>
 ln -sf "${linuxdeploy_gtk_plugin_appimage_path}" "${tools_directory}/linuxdeploy-plugin-gtk"
 chmod +x "${tools_directory}/linuxdeploy-plugin-gtk"
+if ! "${tools_directory}/linuxdeploy-plugin-gtk" --plugin-api-version >/dev/null 2>&1; then
+  plugin_extract_directory="${tools_directory}/linuxdeploy-plugin-gtk.extract"
+  rm -rf "${plugin_extract_directory}"
+  (cd "${tools_directory}" && "./linuxdeploy-plugin-gtk-x86_64.AppImage" --appimage-extract >/dev/null 2>&1)
+  if [[ -d "${tools_directory}/squashfs-root" ]]; then
+    mv "${tools_directory}/squashfs-root" "${plugin_extract_directory}"
+  fi
+  if [[ -x "${plugin_extract_directory}/usr/bin/linuxdeploy-plugin-gtk" ]]; then
+    ln -sf "${plugin_extract_directory}/usr/bin/linuxdeploy-plugin-gtk" "${tools_directory}/linuxdeploy-plugin-gtk"
+  else
+    echo "linuxdeploy-plugin-gtk could not run. Check if AppImages can execute on this filesystem."
+    exit 1
+  fi
+fi
 export PATH="${tools_directory}:${PATH}"
 
 # GTK plugin supports GTK4; we set it explicitly to avoid auto-detect surprises
