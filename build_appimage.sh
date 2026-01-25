@@ -98,32 +98,45 @@ cp -a "${pyinstaller_output_program_directory}/." "${application_directory}/usr/
 download_file() {
   local url="$1"
   local destination_path="$2"
+  local minimum_bytes=1048576
+  local destination_size=0
+
+  if [[ -f "${destination_path}" ]]; then
+    destination_size="$(wc -c < "${destination_path}")"
+    if [[ "${destination_size}" -ge "${minimum_bytes}" ]]; then
+      return 0
+    fi
+
+    rm -f "${destination_path}"
+  fi
 
   if command -v curl >/dev/null 2>&1; then
-    curl -L -o "${destination_path}" "${url}"
-    return 0
-  fi
-
-  if command -v wget >/dev/null 2>&1; then
+    curl -fL -o "${destination_path}" "${url}"
+  elif command -v wget >/dev/null 2>&1; then
     wget -O "${destination_path}" "${url}"
-    return 0
+  else
+    echo "Missing curl/wget. Install one of them to download linuxdeploy tools."
+    exit 1
   fi
 
-  echo "Missing curl/wget. Install one of them to download linuxdeploy tools."
-  exit 1
+  if [[ ! -s "${destination_path}" ]]; then
+    echo "Downloaded file is empty: ${destination_path}"
+    exit 1
+  fi
+
+  if [[ "$(wc -c < "${destination_path}")" -lt "${minimum_bytes}" ]]; then
+    echo "Downloaded file looks incomplete (${destination_path}). Remove it and try again."
+    exit 1
+  fi
 }
 
-if [[ ! -f "${linuxdeploy_appimage_path}" ]]; then
-  download_file \
-    "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage" \
-    "${linuxdeploy_appimage_path}"
-fi
+download_file \
+  "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage" \
+  "${linuxdeploy_appimage_path}"
 
-if [[ ! -f "${linuxdeploy_gtk_plugin_appimage_path}" ]]; then
-  download_file \
-    "https://github.com/linuxdeploy/linuxdeploy-plugin-gtk/releases/download/continuous/linuxdeploy-plugin-gtk-x86_64.AppImage" \
-    "${linuxdeploy_gtk_plugin_appimage_path}"
-fi
+download_file \
+  "https://github.com/linuxdeploy/linuxdeploy-plugin-gtk/releases/download/continuous/linuxdeploy-plugin-gtk-x86_64.AppImage" \
+  "${linuxdeploy_gtk_plugin_appimage_path}"
 
 chmod +x "${linuxdeploy_appimage_path}" "${linuxdeploy_gtk_plugin_appimage_path}"
 
