@@ -326,6 +326,11 @@ def step_create_venv_and_install_deps(context: BuildContext, log: Callable[[str]
 
 
 def step_pyinstaller_build(context: BuildContext, log: Callable[[str], None]) -> bool:
+    """
+    Build the application with PyInstaller (onedir, windowed).
+    Ensures Cairo/GObject bridges are explicitly bundled to prevent
+    'foreign struct converter' TypeErrors in the AppImage.
+    """
     log("Cleaning pyinstaller build/dist folders...")
     shutil.rmtree(context.pyinstaller_build_directory, ignore_errors=True)
     shutil.rmtree(context.pyinstaller_dist_directory, ignore_errors=True)
@@ -344,32 +349,42 @@ def step_pyinstaller_build(context: BuildContext, log: Callable[[str], None]) ->
         "--windowed",
         "--name",
         context.application_identifier,
-        "--workpath",
-        str(context.pyinstaller_build_directory),
-        "--distpath",
-        str(context.pyinstaller_dist_directory),
-        "--collect-submodules",
-        "gi",
-        "--collect-data",
-        "gi",
-        "--hidden-import",
-        "gi",
-        "--hidden-import",
-        "gi.repository.Gtk",
-        "--hidden-import",
-        "gi.repository.Gdk",
-        "--hidden-import",
-        "gi.repository.GLib",
-                context.entrypoint_python_file,
+        "--workpath", str(context.pyinstaller_build_directory),
+        "--distpath", str(context.pyinstaller_dist_directory),
+
+        # --- GTK & GObject Core ---
+        # --collect-all is the most reliable way to grab the .so bridges
+        # like gi._gi_cairo and gi._gi
+        "--collect-all", "gi",
+        "--copy-metadata", "PyGObject",
+
+        # --- Cairo Integration ---
+        # Explicitly collect pycairo binaries and metadata
+        "--collect-all", "cairo",
+        "--copy-metadata", "pycairo",
+
+        # --- Hidden Imports (The "Bridge" Layers) ---
+        "--hidden-import", "gi._gi_cairo",
+        "--hidden-import", "gi.overrides.cairo",
+        "--hidden-import", "gi.repository.Gtk",
+        "--hidden-import", "gi.repository.Gdk",
+        "--hidden-import", "gi.repository.Pango",
+        "--hidden-import", "gi.repository.PangoCairo",
+        "--hidden-import", "gi.repository.GdkPixbuf",
+
+        context.entrypoint_python_file,
     ]
+
     code = run_command_and_stream(command, context.project_root_directory, environment, log)
     if code != 0:
+        log(f"PyInstaller failed with exit code {code}")
         return False
 
     if not context.pyinstaller_output_executable_path.exists():
-        log("Expected pyinstaller executable not found.")
+        log(f"Expected pyinstaller executable not found at: {context.pyinstaller_output_executable_path}")
         return False
 
+    log("PyInstaller build successful.")
     return True
 
 
@@ -424,11 +439,9 @@ def step_download_linuxdeploy(context: BuildContext, log: Callable[[str], None])
         context.linuxdeploy_appimage_path,
         minimum_bytes=1_048_576,
     )
-    download_file(
-        "https://github.com/linuxdeploy/linuxdeploy-plugin-gtk/releases/download/continuous/linuxdeploy-plugin-gtk-x86_64.AppImage",
-        context.linuxdeploy_gtk_plugin_appimage_path,
-        minimum_bytes=1_048_576,
-    )
+    file = download_file(
+        "https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage",
+        context.linuxdeploy_gtk_plugin_appimage_path, minimum_bytes=1_048_576, )
 
     if not context.linuxdeploy_appimage_path.exists():
         log("linuxdeploy download failed or looks incomplete.")
