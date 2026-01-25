@@ -337,61 +337,19 @@ def step_download_linuxdeploy(context: BuildContext, log: Callable[[str], None])
 
     return True
 
-def step_build_appimage(self) -> None:
-    self._append_log("== Step: Build AppImage ==")
-    self._append_log("Building AppImage via linuxdeploy...")
-
-    linuxdeploy = self.context.linuxdeploy_appimage_path
-    gtk_plugin = self.context.linuxdeploy_gtk_plugin_appimage_path
-    appdir = self.context.application_directory
-    desktop_file = self.context.desktop_file_path
-    icon_file = self.context.icon_file_path
-    output_dir = self.context.output_directory
+def step_build_appimage(context: BuildContext, log: Callable[[str], None]) -> bool:
+    linuxdeploy = context.linuxdeploy_appimage_path
+    gtk_plugin = context.linuxdeploy_gtk_plugin_appimage_path
+    appdir = context.application_directory
+    desktop_file = context.desktop_file_path
+    icon_file = context.icon_file_path
+    output_dir = context.output_directory
 
     env = os.environ.copy()
     env["DEPLOY_GTK_VERSION"] = "4"
     env["PATH"] = f"{gtk_plugin.parent}:{env.get('PATH', '')}"
 
-    # --- Diagnostic: test GTK plugin explicitly ---
-    self._append_log("")
-    self._append_log("[diagnostic] Probing GTK plugin API version...")
-
-    probe = subprocess.run(
-        [str(gtk_plugin), "--plugin-api-version"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        env=env,
-    )
-
-    self._append_log(f"[diagnostic] exit code: {probe.returncode}")
-
-    if probe.stdout.strip():
-        self._append_log("[diagnostic] stdout:")
-        self._append_log(probe.stdout.rstrip())
-
-    if probe.stderr.strip():
-        self._append_log("[diagnostic] stderr:")
-        self._append_log(probe.stderr.rstrip())
-
-    if probe.returncode != 0:
-        self._append_log("")
-        self._append_log("ERROR: linuxdeploy GTK plugin failed to execute.")
-        self._append_log("Common causes:")
-        self._append_log(" - build directory is on a 'noexec' filesystem")
-        self._append_log(" - missing GTK runtime libraries on the host")
-        self._append_log(" - corrupted or incomplete plugin download")
-        self._append_log("")
-        self._append_log("Suggested checks:")
-        self._append_log(f"  mount | grep '{gtk_plugin.parent}'")
-        self._append_log(f"  ls -l {gtk_plugin}")
-        self._append_log(f"  {gtk_plugin} --plugin-api-version")
-        raise RuntimeError("GTK plugin execution failed")
-
-    # --- Run linuxdeploy ---
-    self._append_log("")
-    self._append_log("[build] Running linuxdeploy...")
-
+    log("Running linuxdeploy...")
     command = [
         str(linuxdeploy),
         "--appdir", str(appdir),
@@ -407,33 +365,30 @@ def step_build_appimage(self) -> None:
         stderr=subprocess.PIPE,
         text=True,
         env=env,
-        cwd=self.context.build_directory,
+        cwd=context.build_directory,
     )
 
     if result.stdout.strip():
-        self._append_log("[linuxdeploy stdout]")
-        self._append_log(result.stdout.rstrip())
+        log("[linuxdeploy stdout]")
+        log(result.stdout.rstrip())
 
     if result.stderr.strip():
-        self._append_log("[linuxdeploy stderr]")
-        self._append_log(result.stderr.rstrip())
+        log("[linuxdeploy stderr]")
+        log(result.stderr.rstrip())
 
     if result.returncode != 0:
-        self._append_log("")
-        self._append_log("ERROR: linuxdeploy failed.")
-        self._append_log("If this mentions gtk-plugin, verify:")
-        self._append_log(" - build directory is executable (not noexec)")
-        self._append_log(" - DEPLOY_GTK_VERSION=4 is supported on this host")
-        raise RuntimeError("linuxdeploy failed")
+        log("linuxdeploy failed.")
+        return False
 
-    # --- Move output ---
-    generated = next(self.context.build_directory.glob("*.AppImage"))
+    generated = next(context.build_directory.glob("*.AppImage"), None)
+    if generated is None:
+        log("No AppImage was generated in the build directory.")
+        return False
+
     final_path = output_dir / generated.name
     generated.replace(final_path)
-
-    self._append_log("")
-    self._append_log("== Result: SUCCESS ==")
-    self._append_log(f"AppImage created at: {final_path}")
+    log(f"AppImage created at: {final_path}")
+    return True
 
 
 

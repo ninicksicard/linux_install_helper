@@ -267,7 +267,7 @@ download_file \
   "${linuxdeploy_appimage_path}"
 log_info "downloading linuxdeploy-plugin-gtk-x86_64.AppImage"
 download_file \
-  "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh" \
+  "https://github.com/linuxdeploy/linuxdeploy-plugin-gtk/releases/download/continuous/linuxdeploy-plugin-gtk-x86_64.AppImage" \
   "${linuxdeploy_gtk_plugin_appimage_path}"
 
 log_info "Marking linuxdeploy tools executable..."
