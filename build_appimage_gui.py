@@ -146,6 +146,97 @@ def run_command_and_stream(
     return int(process.wait())
 
 
+
+def is_png_file_valid(png_path: Path) -> bool:
+    """
+    build_appimage_gui.py: Validate a PNG file by verifying signature and chunk CRCs.
+
+    This prevents linuxdeploy from failing when a corrupted or partially-written PNG is provided.
+    """
+    try:
+        data = png_path.read_bytes()
+    except OSError:
+        return False
+
+    if len(data) < 8:
+        return False
+
+    png_signature = b"\x89PNG\r\n\x1a\n"
+    if data[:8] != png_signature:
+        return False
+
+    import struct
+    import zlib
+
+    offset = 8
+    try:
+        while offset + 8 <= len(data):
+            length = struct.unpack(">I", data[offset:offset + 4])[0]
+            chunk_type = data[offset + 4:offset + 8]
+            offset += 8
+
+            if offset + length + 4 > len(data):
+                return False
+
+            chunk_data = data[offset:offset + length]
+            offset += length
+
+            expected_crc = struct.unpack(">I", data[offset:offset + 4])[0]
+            offset += 4
+
+            actual_crc = zlib.crc32(chunk_type)
+            actual_crc = zlib.crc32(chunk_data, actual_crc) & 0xFFFFFFFF
+
+            if actual_crc != expected_crc:
+                return False
+
+            if chunk_type == b"IEND":
+                return offset == len(data)
+
+        return False
+    except Exception:
+        return False
+
+
+def write_fallback_png_icon(destination_path: Path, size_pixels: int = 256) -> None:
+    """
+    build_appimage_gui.py: Write a small, valid fallback PNG icon.
+
+    This is used when the user-provided icon is corrupt (e.g., CRC errors), which would
+    otherwise cause linuxdeploy to abort during icon deployment.
+    """
+    import struct
+    import zlib
+
+    size_pixels = max(16, int(size_pixels))
+
+    rows: list[bytes] = []
+    for y in range(size_pixels):
+        row = bytearray()
+        for x in range(size_pixels):
+            r = int(20 + (235 * x) / max(1, (size_pixels - 1)))
+            g = int(20 + (235 * y) / max(1, (size_pixels - 1)))
+            b = 120
+            a = 255
+            row.extend([r, g, b, a])
+        rows.append(bytes([0]) + bytes(row))
+
+    raw = b"".join(rows)
+    compressed = zlib.compress(raw, level=9)
+
+    def _chunk(chunk_type: bytes, chunk_data: bytes) -> bytes:
+        length = struct.pack(">I", len(chunk_data))
+        crc = zlib.crc32(chunk_type)
+        crc = zlib.crc32(chunk_data, crc) & 0xFFFFFFFF
+        return length + chunk_type + chunk_data + struct.pack(">I", crc)
+
+    signature = b"\x89PNG\r\n\x1a\n"
+    ihdr = struct.pack(">IIBBBBB", size_pixels, size_pixels, 8, 6, 0, 0, 0)
+    png_bytes = signature + _chunk(b"IHDR", ihdr) + _chunk(b"IDAT", compressed) + _chunk(b"IEND", b"")
+
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    destination_path.write_bytes(png_bytes)
+
 def download_file(url: str, destination_path: Path, minimum_bytes: int) -> None:
     if destination_path.exists():
         if destination_path.stat().st_size >= minimum_bytes:
@@ -183,8 +274,16 @@ def step_create_venv_and_install_deps(context: BuildContext, log: Callable[[str]
     environment = os.environ.copy()
     environment["APPIMAGE_EXTRACT_AND_RUN"] = "1"
 
+    use_system_site_packages_value = os.environ.get("VENV_SYSTEM_SITE_PACKAGES", "1").strip().lower()
+    use_system_site_packages = use_system_site_packages_value not in ("0", "false", "no")
+
+    venv_command = [context.python_executable, "-m", "venv"]
+    if use_system_site_packages:
+        venv_command.append("--system-site-packages")
+    venv_command.append(str(context.virtual_environment_directory))
+
     code = run_command_and_stream(
-        [context.python_executable, "-m", "venv", str(context.virtual_environment_directory)],
+        venv_command,
         context.project_root_directory,
         environment,
         log,
@@ -249,7 +348,19 @@ def step_pyinstaller_build(context: BuildContext, log: Callable[[str], None]) ->
         str(context.pyinstaller_build_directory),
         "--distpath",
         str(context.pyinstaller_dist_directory),
-        context.entrypoint_python_file,
+        "--collect-submodules",
+        "gi",
+        "--collect-data",
+        "gi",
+        "--hidden-import",
+        "gi",
+        "--hidden-import",
+        "gi.repository.Gtk",
+        "--hidden-import",
+        "gi.repository.Gdk",
+        "--hidden-import",
+        "gi.repository.GLib",
+                context.entrypoint_python_file,
     ]
     code = run_command_and_stream(command, context.project_root_directory, environment, log)
     if code != 0:
@@ -303,26 +414,18 @@ def step_assemble_appdir(context: BuildContext, log: Callable[[str], None]) -> b
     )
     return True
 
-def write_executable_text_file(destination_path: Path, content: str) -> None:
-    destination_path.parent.mkdir(parents=True, exist_ok=True)
-    destination_path.write_text(content, encoding="utf-8")
-    os.chmod(destination_path, 0o755)
-
 
 def step_download_linuxdeploy(context: BuildContext, log: Callable[[str], None]) -> bool:
     ensure_directories(context)
     log("Downloading linuxdeploy + gtk plugin...")
 
-    linuxdeploy_release_tag = os.environ.get("LINUXDEPLOY_RELEASE_TAG", "continuous")
-    linuxdeploy_gtk_plugin_release_tag = os.environ.get("LINUXDEPLOY_GTK_PLUGIN_RELEASE_TAG", "continuous")
-
     download_file(
-        f"https://github.com/linuxdeploy/linuxdeploy/releases/download/{linuxdeploy_release_tag}/linuxdeploy-x86_64.AppImage",
+        "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage",
         context.linuxdeploy_appimage_path,
         minimum_bytes=1_048_576,
     )
     download_file(
-        f"https://github.com/linuxdeploy/linuxdeploy-plugin-gtk/releases/download/{linuxdeploy_gtk_plugin_release_tag}/linuxdeploy-plugin-gtk-x86_64.AppImage",
+        "https://github.com/linuxdeploy/linuxdeploy-plugin-gtk/releases/download/continuous/linuxdeploy-plugin-gtk-x86_64.AppImage",
         context.linuxdeploy_gtk_plugin_appimage_path,
         minimum_bytes=1_048_576,
     )
@@ -337,89 +440,40 @@ def step_download_linuxdeploy(context: BuildContext, log: Callable[[str], None])
     os.chmod(context.linuxdeploy_appimage_path, 0o755)
     os.chmod(context.linuxdeploy_gtk_plugin_appimage_path, 0o755)
 
-    environment = os.environ.copy()
-    environment["APPIMAGE_EXTRACT_AND_RUN"] = "1"
-    environment["PATH"] = f"{context.tools_directory}:{environment.get('PATH', '')}"
-
-    log("Sanity check: linuxdeploy --version")
-    linuxdeploy_exit_code = run_command_and_stream(
-        [str(context.linuxdeploy_appimage_path), "--appimage-extract-and-run", "--version"],
-        context.build_directory,
-        environment,
-        log,
-    )
-    if linuxdeploy_exit_code != 0:
-        log("linuxdeploy failed to run.")
-        return False
-
-    plugin_executable_path = context.tools_directory / "linuxdeploy-plugin-gtk"
-
-    wrapper_script = "\n".join(
-        [
-            "#!/usr/bin/env bash",
-            "set -euo pipefail",
-            "script_directory=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"",
-            "exec \"${script_directory}/linuxdeploy-plugin-gtk-x86_64.AppImage\" --appimage-extract-and-run \"$@\"",
-            "",
-        ]
-    )
-
-    if plugin_executable_path.exists() or plugin_executable_path.is_symlink():
-        plugin_executable_path.unlink()
-    write_executable_text_file(plugin_executable_path, wrapper_script)
-
-    log("Sanity check: linuxdeploy-plugin-gtk --plugin-api-version")
-    plugin_api_version_exit_code = run_command_and_stream(
-        [str(plugin_executable_path), "--plugin-api-version"],
-        context.build_directory,
-        environment,
-        log,
-    )
-
-    if plugin_api_version_exit_code != 0:
-        log("linuxdeploy-plugin-gtk AppImage failed to run. Falling back to the raw plugin script...")
-
-        download_file(
-            "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh",
-            plugin_executable_path,
-            minimum_bytes=4_096,
-        )
-        os.chmod(plugin_executable_path, 0o755)
-
-        plugin_api_version_exit_code = run_command_and_stream(
-            [str(plugin_executable_path), "--plugin-api-version"],
-            context.build_directory,
-            environment,
-            log,
-        )
-        if plugin_api_version_exit_code != 0:
-            log("Raw linuxdeploy-plugin-gtk script also failed to run.")
-            return False
+    plugin_symlink = context.tools_directory / "linuxdeploy-plugin-gtk"
+    if plugin_symlink.exists() or plugin_symlink.is_symlink():
+        plugin_symlink.unlink()
+    plugin_symlink.symlink_to(context.linuxdeploy_gtk_plugin_appimage_path)
+    os.chmod(plugin_symlink, 0o755)
 
     return True
-
 
 def step_build_appimage(context: BuildContext, log: Callable[[str], None]) -> bool:
     log("Building AppImage via linuxdeploy...")
 
     linuxdeploy = context.linuxdeploy_appimage_path
-    plugin_executable_path = context.tools_directory / "linuxdeploy-plugin-gtk"
+    gtk_plugin = context.linuxdeploy_gtk_plugin_appimage_path
 
     if not linuxdeploy.exists():
         log("linuxdeploy AppImage missing.")
         return False
-    if not plugin_executable_path.exists():
-        log("linuxdeploy-plugin-gtk missing. Run the download step first.")
+    if not gtk_plugin.exists():
+        log("linuxdeploy GTK plugin AppImage missing.")
         return False
 
     environment = os.environ.copy()
-    environment["DEPLOY_GTK_VERSION"] = os.environ.get("DEPLOY_GTK_VERSION", "4")
+    environment["DEPLOY_GTK_VERSION"] = "4"
     environment["APPIMAGE_EXTRACT_AND_RUN"] = "1"
     environment["PATH"] = f"{context.tools_directory}:{environment.get('PATH', '')}"
 
+
+    # Ensure icon is a valid PNG; linuxdeploy aborts on corrupted PNGs (CRC errors).
+    if (not context.icon_file_path.exists()) or (not is_png_file_valid(context.icon_file_path)):
+        log(f"Icon is missing or invalid; writing fallback icon to: {context.icon_file_path}")
+        write_fallback_png_icon(context.icon_file_path, size_pixels=256)
+
     command = [
         str(linuxdeploy),
-        "--appimage-extract-and-run",
         "--appdir",
         str(context.application_directory),
         "-d",
@@ -448,89 +502,6 @@ def step_build_appimage(context: BuildContext, log: Callable[[str], None]) -> bo
 
     log(f"AppImage created at: {final_path}")
     return True
-
-#
-# def step_download_linuxdeploy(context: BuildContext, log: Callable[[str], None]) -> bool:
-#     ensure_directories(context)
-#     log("Downloading linuxdeploy + gtk plugin...")
-#
-#     download_file(
-#         "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage",
-#         context.linuxdeploy_appimage_path,
-#         minimum_bytes=1_048_576,
-#     )
-#     download_file(
-#         "https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage",
-#         context.linuxdeploy_gtk_plugin_appimage_path,
-#         minimum_bytes=1_048_576,
-#     )
-#
-#     if not context.linuxdeploy_appimage_path.exists():
-#         log("linuxdeploy download failed or looks incomplete.")
-#         return False
-#     if not context.linuxdeploy_gtk_plugin_appimage_path.exists():
-#         log("linuxdeploy gtk plugin download failed or looks incomplete.")
-#         return False
-#
-#     os.chmod(context.linuxdeploy_appimage_path, 0o755)
-#     os.chmod(context.linuxdeploy_gtk_plugin_appimage_path, 0o755)
-#
-#     plugin_symlink = context.tools_directory / "linuxdeploy-plugin-gtk"
-#     if plugin_symlink.exists() or plugin_symlink.is_symlink():
-#         plugin_symlink.unlink()
-#     plugin_symlink.symlink_to(context.linuxdeploy_gtk_plugin_appimage_path)
-#     os.chmod(plugin_symlink, 0o755)
-#
-#     return True
-#
-# def step_build_appimage(context: BuildContext, log: Callable[[str], None]) -> bool:
-#     log("Building AppImage via linuxdeploy...")
-#
-#     linuxdeploy = context.linuxdeploy_appimage_path
-#     gtk_plugin = context.linuxdeploy_gtk_plugin_appimage_path
-#
-#     if not linuxdeploy.exists():
-#         log("linuxdeploy AppImage missing.")
-#         return False
-#     if not gtk_plugin.exists():
-#         log("linuxdeploy GTK plugin AppImage missing.")
-#         return False
-#
-#     environment = os.environ.copy()
-#     environment["DEPLOY_GTK_VERSION"] = "4"
-#     environment["APPIMAGE_EXTRACT_AND_RUN"] = "1"
-#     environment["PATH"] = f"{context.tools_directory}:{environment.get('PATH', '')}"
-#
-#     command = [
-#         str(linuxdeploy),
-#         "--appdir",
-#         str(context.application_directory),
-#         "-d",
-#         str(context.desktop_file_path),
-#         "-i",
-#         str(context.icon_file_path),
-#         "--plugin",
-#         "gtk",
-#         "--output",
-#         "appimage",
-#     ]
-#
-#     code = run_command_and_stream(command, context.build_directory, environment, log)
-#     if code != 0:
-#         log("linuxdeploy failed.")
-#         return False
-#
-#     generated_images = list(context.build_directory.glob("*.AppImage"))
-#     if not generated_images:
-#         log("No AppImage output found.")
-#         return False
-#
-#     generated_image = sorted(generated_images)[0]
-#     final_path = context.output_directory / generated_image.name
-#     generated_image.replace(final_path)
-#
-#     log(f"AppImage created at: {final_path}")
-#     return True
 
 
 
