@@ -303,18 +303,26 @@ def step_assemble_appdir(context: BuildContext, log: Callable[[str], None]) -> b
     )
     return True
 
+def write_executable_text_file(destination_path: Path, content: str) -> None:
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
+    destination_path.write_text(content, encoding="utf-8")
+    os.chmod(destination_path, 0o755)
+
 
 def step_download_linuxdeploy(context: BuildContext, log: Callable[[str], None]) -> bool:
     ensure_directories(context)
     log("Downloading linuxdeploy + gtk plugin...")
 
+    linuxdeploy_release_tag = os.environ.get("LINUXDEPLOY_RELEASE_TAG", "continuous")
+    linuxdeploy_gtk_plugin_release_tag = os.environ.get("LINUXDEPLOY_GTK_PLUGIN_RELEASE_TAG", "continuous")
+
     download_file(
-        "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage",
+        f"https://github.com/linuxdeploy/linuxdeploy/releases/download/{linuxdeploy_release_tag}/linuxdeploy-x86_64.AppImage",
         context.linuxdeploy_appimage_path,
         minimum_bytes=1_048_576,
     )
     download_file(
-        "https://github.com/linuxdeploy/linuxdeploy-plugin-gtk/releases/download/continuous/linuxdeploy-plugin-gtk-x86_64.AppImage",
+        f"https://github.com/linuxdeploy/linuxdeploy-plugin-gtk/releases/download/{linuxdeploy_gtk_plugin_release_tag}/linuxdeploy-plugin-gtk-x86_64.AppImage",
         context.linuxdeploy_gtk_plugin_appimage_path,
         minimum_bytes=1_048_576,
     )
@@ -329,41 +337,96 @@ def step_download_linuxdeploy(context: BuildContext, log: Callable[[str], None])
     os.chmod(context.linuxdeploy_appimage_path, 0o755)
     os.chmod(context.linuxdeploy_gtk_plugin_appimage_path, 0o755)
 
-    plugin_symlink = context.tools_directory / "linuxdeploy-plugin-gtk"
-    if plugin_symlink.exists() or plugin_symlink.is_symlink():
-        plugin_symlink.unlink()
-    plugin_symlink.symlink_to(context.linuxdeploy_gtk_plugin_appimage_path)
-    os.chmod(plugin_symlink, 0o755)
+    environment = os.environ.copy()
+    environment["APPIMAGE_EXTRACT_AND_RUN"] = "1"
+    environment["PATH"] = f"{context.tools_directory}:{environment.get('PATH', '')}"
+
+    log("Sanity check: linuxdeploy --version")
+    linuxdeploy_exit_code = run_command_and_stream(
+        [str(context.linuxdeploy_appimage_path), "--appimage-extract-and-run", "--version"],
+        context.build_directory,
+        environment,
+        log,
+    )
+    if linuxdeploy_exit_code != 0:
+        log("linuxdeploy failed to run.")
+        return False
+
+    plugin_executable_path = context.tools_directory / "linuxdeploy-plugin-gtk"
+
+    wrapper_script = "\n".join(
+        [
+            "#!/usr/bin/env bash",
+            "set -euo pipefail",
+            "script_directory=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"",
+            "exec \"${script_directory}/linuxdeploy-plugin-gtk-x86_64.AppImage\" --appimage-extract-and-run \"$@\"",
+            "",
+        ]
+    )
+
+    if plugin_executable_path.exists() or plugin_executable_path.is_symlink():
+        plugin_executable_path.unlink()
+    write_executable_text_file(plugin_executable_path, wrapper_script)
+
+    log("Sanity check: linuxdeploy-plugin-gtk --plugin-api-version")
+    plugin_api_version_exit_code = run_command_and_stream(
+        [str(plugin_executable_path), "--plugin-api-version"],
+        context.build_directory,
+        environment,
+        log,
+    )
+
+    if plugin_api_version_exit_code != 0:
+        log("linuxdeploy-plugin-gtk AppImage failed to run. Falling back to the raw plugin script...")
+
+        download_file(
+            "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh",
+            plugin_executable_path,
+            minimum_bytes=4_096,
+        )
+        os.chmod(plugin_executable_path, 0o755)
+
+        plugin_api_version_exit_code = run_command_and_stream(
+            [str(plugin_executable_path), "--plugin-api-version"],
+            context.build_directory,
+            environment,
+            log,
+        )
+        if plugin_api_version_exit_code != 0:
+            log("Raw linuxdeploy-plugin-gtk script also failed to run.")
+            return False
 
     return True
+
 
 def step_build_appimage(context: BuildContext, log: Callable[[str], None]) -> bool:
     log("Building AppImage via linuxdeploy...")
 
     linuxdeploy = context.linuxdeploy_appimage_path
-    gtk_plugin = context.linuxdeploy_gtk_plugin_appimage_path
+    plugin_executable_path = context.tools_directory / "linuxdeploy-plugin-gtk"
 
     if not linuxdeploy.exists():
         log("linuxdeploy AppImage missing.")
         return False
-    if not gtk_plugin.exists():
-        log("linuxdeploy GTK plugin AppImage missing.")
+    if not plugin_executable_path.exists():
+        log("linuxdeploy-plugin-gtk missing. Run the download step first.")
         return False
 
     environment = os.environ.copy()
-    environment["DEPLOY_GTK_VERSION"] = "4"
+    environment["DEPLOY_GTK_VERSION"] = os.environ.get("DEPLOY_GTK_VERSION", "4")
     environment["APPIMAGE_EXTRACT_AND_RUN"] = "1"
     environment["PATH"] = f"{context.tools_directory}:{environment.get('PATH', '')}"
 
     command = [
         str(linuxdeploy),
+        "--appimage-extract-and-run",
         "--appdir",
         str(context.application_directory),
         "-d",
         str(context.desktop_file_path),
         "-i",
         str(context.icon_file_path),
-        "--plugin",
+        "--output",
         "gtk",
         "--output",
         "appimage",
@@ -385,6 +448,89 @@ def step_build_appimage(context: BuildContext, log: Callable[[str], None]) -> bo
 
     log(f"AppImage created at: {final_path}")
     return True
+
+#
+# def step_download_linuxdeploy(context: BuildContext, log: Callable[[str], None]) -> bool:
+#     ensure_directories(context)
+#     log("Downloading linuxdeploy + gtk plugin...")
+#
+#     download_file(
+#         "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage",
+#         context.linuxdeploy_appimage_path,
+#         minimum_bytes=1_048_576,
+#     )
+#     download_file(
+#         "https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage",
+#         context.linuxdeploy_gtk_plugin_appimage_path,
+#         minimum_bytes=1_048_576,
+#     )
+#
+#     if not context.linuxdeploy_appimage_path.exists():
+#         log("linuxdeploy download failed or looks incomplete.")
+#         return False
+#     if not context.linuxdeploy_gtk_plugin_appimage_path.exists():
+#         log("linuxdeploy gtk plugin download failed or looks incomplete.")
+#         return False
+#
+#     os.chmod(context.linuxdeploy_appimage_path, 0o755)
+#     os.chmod(context.linuxdeploy_gtk_plugin_appimage_path, 0o755)
+#
+#     plugin_symlink = context.tools_directory / "linuxdeploy-plugin-gtk"
+#     if plugin_symlink.exists() or plugin_symlink.is_symlink():
+#         plugin_symlink.unlink()
+#     plugin_symlink.symlink_to(context.linuxdeploy_gtk_plugin_appimage_path)
+#     os.chmod(plugin_symlink, 0o755)
+#
+#     return True
+#
+# def step_build_appimage(context: BuildContext, log: Callable[[str], None]) -> bool:
+#     log("Building AppImage via linuxdeploy...")
+#
+#     linuxdeploy = context.linuxdeploy_appimage_path
+#     gtk_plugin = context.linuxdeploy_gtk_plugin_appimage_path
+#
+#     if not linuxdeploy.exists():
+#         log("linuxdeploy AppImage missing.")
+#         return False
+#     if not gtk_plugin.exists():
+#         log("linuxdeploy GTK plugin AppImage missing.")
+#         return False
+#
+#     environment = os.environ.copy()
+#     environment["DEPLOY_GTK_VERSION"] = "4"
+#     environment["APPIMAGE_EXTRACT_AND_RUN"] = "1"
+#     environment["PATH"] = f"{context.tools_directory}:{environment.get('PATH', '')}"
+#
+#     command = [
+#         str(linuxdeploy),
+#         "--appdir",
+#         str(context.application_directory),
+#         "-d",
+#         str(context.desktop_file_path),
+#         "-i",
+#         str(context.icon_file_path),
+#         "--plugin",
+#         "gtk",
+#         "--output",
+#         "appimage",
+#     ]
+#
+#     code = run_command_and_stream(command, context.build_directory, environment, log)
+#     if code != 0:
+#         log("linuxdeploy failed.")
+#         return False
+#
+#     generated_images = list(context.build_directory.glob("*.AppImage"))
+#     if not generated_images:
+#         log("No AppImage output found.")
+#         return False
+#
+#     generated_image = sorted(generated_images)[0]
+#     final_path = context.output_directory / generated_image.name
+#     generated_image.replace(final_path)
+#
+#     log(f"AppImage created at: {final_path}")
+#     return True
 
 
 
