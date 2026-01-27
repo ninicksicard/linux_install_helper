@@ -6,6 +6,7 @@ Main GTK4 window: repo search panel, primary package list panel, and output log.
 
 from __future__ import annotations
 
+import re
 import shlex
 import subprocess
 import threading
@@ -177,6 +178,10 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         add_button = Gtk.Button(label="Add")
         add_button.connect("clicked", self._on_add_primary_clicked)
         add_row.append(add_button)
+
+        add_file_button = Gtk.Button(label="Add from file")
+        add_file_button.connect("clicked", self._on_add_from_file_clicked)
+        add_row.append(add_file_button)
 
         list_frame = Gtk.Frame()
         list_frame.add_css_class("output-card")
@@ -565,6 +570,54 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
             return
         self.queue_add_primary_from_text(text)
         self.add_entry.set_text("")
+
+    def _on_add_from_file_clicked(self, _button: Gtk.Button) -> None:
+        dialog = Gtk.FileChooserNative.new(
+            "Add from script or file",
+            self,
+            Gtk.FileChooserAction.OPEN,
+            "Open",
+            "Cancel",
+        )
+        dialog.connect("response", self._on_add_from_file_response)
+        dialog.show()
+
+    def _on_add_from_file_response(self, dialog: Gtk.FileChooserNative, response: int) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
+            dialog.destroy()
+            return
+
+        file_object = dialog.get_file()
+        dialog.destroy()
+        if file_object is None:
+            return
+
+        file_path = file_object.get_path()
+        if not file_path:
+            return
+
+        success, file_contents, _ = GLib.file_get_contents(file_path)
+        if not success or file_contents is None:
+            self.output_expander.set_expanded(True)
+            self.append_log(f"Unable to read file: {file_path}\n")
+            return
+
+        if isinstance(file_contents, bytes):
+            file_text = file_contents.decode("utf-8", errors="replace")
+        else:
+            file_text = str(file_contents)
+
+        self._queue_add_primary_from_script_text(file_text)
+
+    def _queue_add_primary_from_script_text(self, text: str) -> None:
+        for line in text.splitlines():
+            for segment in self._split_script_line(line):
+                segment_text = segment.strip()
+                if segment_text:
+                    self.queue_add_primary_from_text(segment_text)
+
+    def _split_script_line(self, line: str) -> list[str]:
+        return re.split(r"\s*(?:&&|\|)\s*", line)
 
     def _on_clear_log(self, _button: Gtk.Button) -> None:
         buffer = self.log_view.get_buffer()
