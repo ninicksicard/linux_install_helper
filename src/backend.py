@@ -74,6 +74,33 @@ def detect_default_installer() -> str:
     return "dnf"
 
 
+def list_available_installers() -> list[str]:
+    installers = [
+        "dnf5",
+        "dnf",
+        "yum",
+        "apt",
+        "apt-get",
+        "nala",
+        "pacman",
+        "yay",
+        "paru",
+        "zypper",
+        "apk",
+        "brew",
+    ]
+    available: list[str] = []
+    for installer in installers:
+        code, _, _ = helpers.run_bash(f"command -v {installer} >/dev/null 2>&1")
+        if code == 0:
+            available.append(installer)
+
+    if available:
+        return available
+
+    return ["dnf"]
+
+
 def _stream_command_lines(
     command: str,
     cancel_event: threading.Event,

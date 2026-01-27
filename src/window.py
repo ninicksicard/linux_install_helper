@@ -20,6 +20,7 @@ import helpers
 from backend import (
     create_node,
     detect_default_installer,
+    list_available_installers,
     list_dependencies,
     list_installed_packages,
     normalize_target_name,
@@ -50,6 +51,9 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         self.set_default_size(1200, 760)
 
         self.default_installer = detect_default_installer()
+        self.available_installers = list_available_installers()
+        if self.default_installer not in self.available_installers:
+            self.available_installers.insert(0, self.default_installer)
         self.primary_names: Set[str] = set()
         self.search_results: list[str] = []
 
@@ -72,9 +76,20 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         title_label.set_hexpand(True)
         top_bar.append(title_label)
 
-        installer_label = Gtk.Label(label=f"Installer: {self.default_installer}", xalign=1.0)
+        installer_label = Gtk.Label(label="Installer", xalign=1.0)
         installer_label.add_css_class("muted")
         top_bar.append(installer_label)
+
+        installer_model = Gtk.StringList.new(self.available_installers)
+        self.installer_dropdown = Gtk.DropDown(model=installer_model)
+        self.installer_dropdown.add_css_class("flat")
+        self.installer_dropdown.connect("notify::selected", self._on_default_installer_selected)
+        top_bar.append(self.installer_dropdown)
+
+        for index, installer in enumerate(self.available_installers):
+            if installer == self.default_installer:
+                self.installer_dropdown.set_selected(index)
+                break
 
         paned = Gtk.Paned.new(Gtk.Orientation.HORIZONTAL)
         paned.set_wide_handle(True)
@@ -140,6 +155,12 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         scrolled.set_child(self.search_list_box)
 
         return frame
+
+    def _on_default_installer_selected(self, dropdown: Gtk.DropDown, _param_spec) -> None:
+        selected_item = dropdown.get_selected_item()
+        if selected_item is None:
+            return
+        self.default_installer = selected_item.get_string()
 
     def _build_primary_panel(self) -> Gtk.Widget:
         container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
