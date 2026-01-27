@@ -6,6 +6,7 @@ Main GTK4 window: repo search panel, primary package list panel, and output log.
 
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 import threading
@@ -61,6 +62,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         self._search_job_id = 0
 
         self._refresh_status_thread_running = False
+        self._add_from_file_dialog: Gtk.FileChooserNative | None = None
 
         root_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         root_box.set_margin_top(10)
@@ -177,6 +179,10 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         add_button = Gtk.Button(label="Add")
         add_button.connect("clicked", self._on_add_primary_clicked)
         add_row.append(add_button)
+
+        add_from_file_button = Gtk.Button(label="Add from file")
+        add_from_file_button.connect("clicked", self._on_add_primary_from_file_clicked)
+        add_row.append(add_from_file_button)
 
         list_frame = Gtk.Frame()
         list_frame.add_css_class("output-card")
@@ -565,6 +571,46 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
             return
         self.queue_add_primary_from_text(text)
         self.add_entry.set_text("")
+
+    def _on_add_primary_from_file_clicked(self, _button: Gtk.Button) -> None:
+        dialog = Gtk.FileChooserNative.new(
+            "Add from script or file",
+            self,
+            Gtk.FileChooserAction.OPEN,
+            "_Open",
+            "_Cancel",
+        )
+        dialog.connect("response", self._on_add_primary_from_file_response)
+        dialog.show()
+        self._add_from_file_dialog = dialog
+
+    def _on_add_primary_from_file_response(self, dialog: Gtk.FileChooserNative, response: int) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
+            dialog.destroy()
+            self._add_from_file_dialog = None
+            return
+
+        selected_file = dialog.get_file()
+        dialog.destroy()
+        self._add_from_file_dialog = None
+        if selected_file is None:
+            return
+
+        file_path = selected_file.get_path()
+        if not file_path or not os.path.isfile(file_path) or not os.access(file_path, os.R_OK):
+            self.append_log(f"[file error] Cannot read: {file_path}\n")
+            return
+
+        with open(file_path, "r", encoding="utf-8", errors="replace") as handle:
+            content = handle.read()
+
+        for line in content.splitlines():
+            if not line.strip():
+                continue
+            for segment in line.replace("&&", "|").split("|"):
+                segment_text = segment.strip()
+                if segment_text:
+                    self.queue_add_primary_from_text(segment_text)
 
     def _on_clear_log(self, _button: Gtk.Button) -> None:
         buffer = self.log_view.get_buffer()
