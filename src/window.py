@@ -122,6 +122,10 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         label.set_hexpand(True)
         header.append(label)
 
+        export_search_list_button = Gtk.Button(label="Export list")
+        export_search_list_button.connect("clicked", self._on_export_search_list_clicked)
+        header.append(export_search_list_button)
+
         self.search_status = Gtk.Label(label="", xalign=1.0)
         self.search_status.add_css_class("muted")
         header.append(self.search_status)
@@ -197,6 +201,10 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         list_title = Gtk.Label(label="Primary Packages", xalign=0.0)
         list_title.set_hexpand(True)
         list_header.append(list_title)
+
+        export_primary_list_button = Gtk.Button(label="Export list")
+        export_primary_list_button.connect("clicked", self._on_export_primary_list_clicked)
+        list_header.append(export_primary_list_button)
 
         self.refresh_all_status_button = Gtk.Button(label="Refresh status")
         self.refresh_all_status_button.connect("clicked", self._on_refresh_all_status_clicked)
@@ -359,6 +367,66 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
             child = next_child
 
         return cards
+
+    def _collect_primary_list_names(self) -> list[str]:
+        names: list[str] = []
+        child = self.primary_list_box.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+
+            if isinstance(child, PackageCard):
+                names.append(child.node.name)
+
+            child = next_child
+
+        return names
+
+    def _open_export_dialog(self, items: list[str], suggested_name: str) -> None:
+        if not items:
+            self.append_log("[export] No items to export.\n")
+            return
+
+        dialog = Gtk.FileChooserNative.new(
+            "Export list",
+            self,
+            Gtk.FileChooserAction.SAVE,
+            "_Save",
+            "_Cancel",
+        )
+        dialog.set_current_name(suggested_name)
+        dialog.connect("response", self._on_export_list_response, items)
+        dialog.show()
+
+    def _on_export_list_response(
+        self,
+        dialog: Gtk.FileChooserNative,
+        response: int,
+        items: list[str],
+    ) -> None:
+        if response != Gtk.ResponseType.ACCEPT:
+            dialog.destroy()
+            return
+
+        selected_file = dialog.get_file()
+        dialog.destroy()
+        if selected_file is None:
+            self.append_log("[export] No file selected.\n")
+            return
+
+        file_path = selected_file.get_path()
+        if not file_path:
+            self.append_log("[export] No file path available.\n")
+            return
+
+        parent_directory = os.path.dirname(file_path) or "."
+        if not os.path.isdir(parent_directory) or not os.access(parent_directory, os.W_OK):
+            self.append_log(f"[export] Cannot write to: {file_path}\n")
+            return
+
+        with open(file_path, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(items))
+            handle.write("\n")
+        self.append_log(f"[export] Saved: {file_path}\n")
 
     def _on_refresh_all_status_clicked(self, _button: Gtk.Button) -> None:
         if self._refresh_status_thread_running:
@@ -558,6 +626,9 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
     def _on_search_add_clicked(self, _button: Gtk.Button, package_name: str) -> None:
         self.queue_add_primary_from_text(package_name)
 
+    def _on_export_search_list_clicked(self, _button: Gtk.Button) -> None:
+        self._open_export_dialog(self.search_results, "search-results.txt")
+
     def _on_add_primary_clicked(self, _button: Gtk.Button) -> None:
         text = self.add_entry.get_text().strip()
         if not text:
@@ -611,6 +682,9 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
                 segment_text = segment.strip()
                 if segment_text:
                     self.queue_add_primary_from_text(segment_text)
+
+    def _on_export_primary_list_clicked(self, _button: Gtk.Button) -> None:
+        self._open_export_dialog(self._collect_primary_list_names(), "primary-packages.txt")
 
     def _on_clear_log(self, _button: Gtk.Button) -> None:
         buffer = self.log_view.get_buffer()
