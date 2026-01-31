@@ -609,7 +609,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
                 continue
             for segment in line.replace("&&", "|").split("|"):
                 segment_text = segment.strip()
-                if segment_text:
+                if self._should_queue_segment(segment_text):
                     self.queue_add_primary_from_text(segment_text)
 
     def _on_clear_log(self, _button: Gtk.Button) -> None:
@@ -618,3 +618,38 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
 
     def _update_status(self) -> None:
         self.status_label.set_text(f"{len(self.primary_names)} item(s)")
+
+    def _should_queue_segment(self, segment_text: str) -> bool:
+        segment_stripped = segment_text.strip()
+        if not segment_stripped:
+            return False
+
+        if "#" in segment_stripped or "$" in segment_stripped:
+            return False
+
+        lower_segment = segment_stripped.lower()
+        if lower_segment.startswith("if ") or lower_segment == "if":
+            return False
+        if lower_segment.startswith("for ") or lower_segment == "for":
+            return False
+
+        tokens = segment_stripped.split()
+        if not tokens:
+            return False
+
+        lowered_tokens = [token.lower() for token in tokens]
+        if any(token in {"echo", "chmod", "print"} for token in lowered_tokens):
+            return False
+
+        if all(token.startswith("-") for token in tokens):
+            return False
+
+        installer = helpers.find_installer(segment_stripped)
+        if installer:
+            return bool(helpers.find_target(segment_stripped))
+
+        if len(tokens) == 1:
+            available_packages = search_repo_online(self.default_installer, tokens[0])
+            return tokens[0] in available_packages
+
+        return False
