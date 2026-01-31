@@ -122,13 +122,32 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         label.set_hexpand(True)
         header.append(label)
 
-        export_search_list_button = Gtk.Button(label="Export list")
-        export_search_list_button.connect("clicked", self._on_export_search_list_clicked)
-        header.append(export_search_list_button)
-
         self.search_status = Gtk.Label(label="", xalign=1.0)
         self.search_status.add_css_class("muted")
         header.append(self.search_status)
+
+        search_menu_button = Gtk.MenuButton()
+        search_menu_button.set_icon_name("open-menu-symbolic")
+        search_menu_button.add_css_class("flat")
+        header.append(search_menu_button)
+
+        search_menu_popover = Gtk.Popover()
+        search_menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        search_menu_box.set_margin_top(6)
+        search_menu_box.set_margin_bottom(6)
+        search_menu_box.set_margin_start(6)
+        search_menu_box.set_margin_end(6)
+
+        export_search_list_button = Gtk.Button(label="Export list")
+        export_search_list_button.connect("clicked", self._on_export_search_list_clicked)
+        search_menu_box.append(export_search_list_button)
+
+        add_all_button = Gtk.Button(label="Add all")
+        add_all_button.connect("clicked", self._on_add_all_search_results_clicked)
+        search_menu_box.append(add_all_button)
+
+        search_menu_popover.set_child(search_menu_box)
+        search_menu_button.set_popover(search_menu_popover)
 
         controls = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         container.append(controls)
@@ -202,13 +221,32 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         list_title.set_hexpand(True)
         list_header.append(list_title)
 
-        export_primary_list_button = Gtk.Button(label="Export list")
-        export_primary_list_button.connect("clicked", self._on_export_primary_list_clicked)
-        list_header.append(export_primary_list_button)
-
         self.refresh_all_status_button = Gtk.Button(label="Refresh status")
         self.refresh_all_status_button.connect("clicked", self._on_refresh_all_status_clicked)
         list_header.append(self.refresh_all_status_button)
+
+        primary_menu_button = Gtk.MenuButton()
+        primary_menu_button.set_icon_name("open-menu-symbolic")
+        primary_menu_button.add_css_class("flat")
+        list_header.append(primary_menu_button)
+
+        primary_menu_popover = Gtk.Popover()
+        primary_menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        primary_menu_box.set_margin_top(6)
+        primary_menu_box.set_margin_bottom(6)
+        primary_menu_box.set_margin_start(6)
+        primary_menu_box.set_margin_end(6)
+
+        export_primary_list_button = Gtk.Button(label="Export list")
+        export_primary_list_button.connect("clicked", self._on_export_primary_list_clicked)
+        primary_menu_box.append(export_primary_list_button)
+
+        remove_all_button = Gtk.Button(label="Remove all")
+        remove_all_button.connect("clicked", self._on_remove_all_primary_clicked)
+        primary_menu_box.append(remove_all_button)
+
+        primary_menu_popover.set_child(primary_menu_box)
+        primary_menu_button.set_popover(primary_menu_popover)
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -626,6 +664,12 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
     def _on_search_add_clicked(self, _button: Gtk.Button, package_name: str) -> None:
         self.queue_add_primary_from_text(package_name)
 
+    def _on_add_all_search_results_clicked(self, _button: Gtk.Button) -> None:
+        if not self.search_results:
+            return
+        for package_name in self.search_results:
+            self.queue_add_primary_from_text(package_name)
+
     def _on_export_search_list_clicked(self, _button: Gtk.Button) -> None:
         self._open_export_dialog(self.search_results, "search-results.txt")
 
@@ -685,6 +729,13 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
 
     def _on_export_primary_list_clicked(self, _button: Gtk.Button) -> None:
         self._open_export_dialog(self._collect_primary_list_names(), "primary-packages.txt")
+
+    def _on_remove_all_primary_clicked(self, _button: Gtk.Button) -> None:
+        if not self.primary_names:
+            return
+        self.primary_names.clear()
+        clear_box_children(self.primary_list_box)
+        self._update_status()
 
     def _on_clear_log(self, _button: Gtk.Button) -> None:
         buffer = self.log_view.get_buffer()
