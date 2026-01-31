@@ -1,6 +1,6 @@
 # Linux Install Helper (GTK4)
 
-A small GTK4 desktop app that helps you install linux packages with a clean graphic user interface. It helps you search packages, inspect dependency trees, and *run package-manager actions with a visible, editable command preview.
+A small GTK4 desktop app that helps you install linux packages with a clean graphic user interface. It helps you search packages, inspect dependency trees, and run package-manager actions with a visible, editable command preview.
 
 This is aimed at "I know what I want to install, but I want a clearer view of what is installed, what depends on what, and what command will actually run".
 
@@ -69,4 +69,5 @@ To actually run the command, you must click **Run**.
 Fedora:
 ```bash
 sudo dnf install -y python3 python3-gobject gtk4
+
 
