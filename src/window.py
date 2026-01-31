@@ -553,7 +553,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
                 cancel_event = threading.Event()
 
             results, canceled = list_installed_packages(self.default_installer, cancel_event, query_stripped)
-            results = unique_preserve_order(results)[:500]
+            results = unique_preserve_order(results)
 
             def apply_results() -> bool:
                 if job_id != self._search_job_id:
@@ -569,7 +569,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
             return
 
         results = search_repo_online(self.default_installer, query_stripped)
-        results = unique_preserve_order(results)[:250]
+        results = unique_preserve_order(results)
 
         def apply_results() -> bool:
             if job_id != self._search_job_id:
