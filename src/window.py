@@ -57,6 +57,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
             self.available_installers.insert(0, self.default_installer)
         self.primary_names: Set[str] = set()
         self.search_results: list[str] = []
+        self._available_package_cache: dict[str, bool] = {}
 
         self._search_cancel_event: threading.Event | None = None
         self._search_job_id = 0
@@ -163,6 +164,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         if selected_item is None:
             return
         self.default_installer = selected_item.get_string()
+        self._available_package_cache = {}
 
     def _build_primary_panel(self) -> Gtk.Widget:
         container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -609,8 +611,11 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
                 continue
             for segment in line.replace("&&", "|").split("|"):
                 segment_text = segment.strip()
-                if segment_text:
-                    self.queue_add_primary_from_text(segment_text)
+                if not segment_text:
+                    continue
+                if not self._should_add_from_file_segment(segment_text):
+                    continue
+                self.queue_add_primary_from_text(segment_text)
 
     def _on_clear_log(self, _button: Gtk.Button) -> None:
         buffer = self.log_view.get_buffer()
@@ -618,3 +623,44 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
 
     def _update_status(self) -> None:
         self.status_label.set_text(f"{len(self.primary_names)} item(s)")
+
+    def _should_add_from_file_segment(self, segment_text: str) -> bool:
+        stripped = segment_text.strip()
+        if not stripped:
+            return False
+
+        lower_text = stripped.lower()
+        tokens = stripped.split()
+        first_token = tokens[0].lower() if tokens else ""
+
+        if "#" in stripped or "$" in stripped:
+            return False
+        if any(token in {"echo", "chmod", "print"} for token in (token.lower() for token in tokens)):
+            return False
+        if lower_text.startswith("if ") or lower_text.startswith("for "):
+            return False
+        if first_token in {"if", "for"}:
+            return False
+        if tokens and all(token.startswith("--") for token in tokens):
+            return False
+
+        if helpers.find_installer(stripped):
+            return True
+
+        if len(tokens) == 1:
+            token = tokens[0]
+            if token.startswith("-"):
+                return False
+            base_name = normalize_target_name(token)
+            return self._is_available_package(base_name)
+
+        return False
+
+    def _is_available_package(self, package_name: str) -> bool:
+        cached = self._available_package_cache.get(package_name)
+        if cached is not None:
+            return cached
+        results = search_repo_online(self.default_installer, package_name)
+        is_available = package_name in results
+        self._available_package_cache[package_name] = is_available
+        return is_available
