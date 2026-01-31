@@ -63,6 +63,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
 
         self._refresh_status_thread_running = False
         self._add_from_file_dialog: Gtk.FileChooserNative | None = None
+        self._package_availability_cache: dict[str, bool] = {}
 
         root_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         root_box.set_margin_top(10)
@@ -609,8 +610,69 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
                 continue
             for segment in line.replace("&&", "|").split("|"):
                 segment_text = segment.strip()
-                if segment_text:
+                if segment_text and self._should_consider_file_segment(segment_text):
                     self.queue_add_primary_from_text(segment_text)
+
+    def _should_consider_file_segment(self, segment_text: str) -> bool:
+        stripped_segment = segment_text.strip()
+        if not stripped_segment:
+            return False
+
+        if "#" in stripped_segment or "$" in stripped_segment:
+            return False
+
+        tokens = stripped_segment.split()
+        if not tokens:
+            return False
+
+        first_token = tokens[0].lower()
+        if first_token in {"if", "for"}:
+            return False
+
+        blocked_tokens = {"echo", "chmod", "print"}
+        if any(token in blocked_tokens for token in tokens):
+            return False
+
+        if all(token.startswith("-") for token in tokens):
+            return False
+
+        if len(tokens) == 1:
+            return self._is_available_package(tokens[0])
+
+        installer = helpers.find_installer(stripped_segment)
+        if not installer:
+            return False
+
+        if not self._is_install_command(stripped_segment, installer):
+            return False
+
+        return bool(helpers.find_target(stripped_segment))
+
+    def _is_available_package(self, package_name: str) -> bool:
+        cache_key = f"{self.default_installer}:{package_name}"
+        if cache_key in self._package_availability_cache:
+            return self._package_availability_cache[cache_key]
+
+        results = helpers.search_repo(self.default_installer, package_name)
+        available = package_name in results
+        self._package_availability_cache[cache_key] = available
+        return available
+
+    def _is_install_command(self, segment_text: str, installer: str) -> bool:
+        tokens = segment_text.split()
+        while tokens and tokens[0] in {"sudo", "env"}:
+            tokens = tokens[1:]
+
+        if not tokens or tokens[0] != installer:
+            return False
+
+        if installer in {"pacman", "yay", "paru"}:
+            return any(token.startswith("-S") for token in tokens[1:])
+
+        if installer in {"apk"}:
+            return "add" in tokens
+
+        return any(token in {"install", "reinstall"} for token in tokens)
 
     def _on_clear_log(self, _button: Gtk.Button) -> None:
         buffer = self.log_view.get_buffer()
