@@ -15,7 +15,8 @@ from typing import Set
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk
+gi.require_version("Pango", "1.0")
+from gi.repository import GLib, Gtk, Pango
 
 import helpers
 from backend import (
@@ -525,6 +526,8 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
             row.set_hexpand(True)
 
             label = Gtk.Label(label=package_name, xalign=0.0)
+            label.set_ellipsize(Pango.EllipsizeMode.END)
+            label.set_single_line_mode(True)
             label.set_hexpand(True)
             row.append(label)
 
