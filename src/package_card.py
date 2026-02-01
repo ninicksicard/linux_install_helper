@@ -12,7 +12,8 @@ from typing import Callable
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import GLib, Gtk
+gi.require_version("Pango", "1.0")
+from gi.repository import GLib, Gtk, Pango
 
 import helpers
 from backend import build_command_line
@@ -67,6 +68,8 @@ class PackageCard(Gtk.Frame):
         self.header_area.append(self.chevron_label)
 
         self.name_label = Gtk.Label(label=self.node.name, xalign=0.0)
+        self.name_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self.name_label.set_single_line_mode(True)
         self.name_label.set_hexpand(True)
         self.header_area.append(self.name_label)
 
