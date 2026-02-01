@@ -61,6 +61,7 @@ class PackageCard(Gtk.Frame):
         self.header_area = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.header_area.add_css_class("header-area")
         self.header_area.set_hexpand(True)
+        self.header_area.set_overflow(Gtk.Overflow.HIDDEN)
         self.grid.attach(self.header_area, 1, 0, 1, 1)
 
         self.chevron_label = Gtk.Label(label=">", xalign=0.0)
@@ -68,9 +69,11 @@ class PackageCard(Gtk.Frame):
         self.header_area.append(self.chevron_label)
 
         self.name_label = Gtk.Label(label=self.node.name, xalign=0.0)
-        self.name_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self.name_label.set_ellipsize(Pango.EllipsizeMode.NONE)
         self.name_label.set_single_line_mode(True)
         self.name_label.set_hexpand(True)
+        self.name_label.set_overflow(Gtk.Overflow.HIDDEN)
+        self.name_label.set_width_chars(0)
         self.header_area.append(self.name_label)
 
         self.add_button_folded = Gtk.Button(label="Add")
