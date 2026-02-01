@@ -10,6 +10,7 @@ import os
 import shlex
 import subprocess
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Set
 
 import gi
@@ -251,6 +252,10 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         remove_all_button = Gtk.Button(label="Remove all")
         remove_all_button.connect("clicked", self._on_remove_all_primary_clicked)
         primary_menu_box.append(remove_all_button)
+
+        remove_dependencies_button = Gtk.Button(label="Remove dependencies")
+        remove_dependencies_button.connect("clicked", self._on_remove_dependencies_clicked)
+        primary_menu_box.append(remove_dependencies_button)
 
         primary_menu_popover.set_child(primary_menu_box)
         primary_menu_button.set_popover(primary_menu_popover)
@@ -745,6 +750,114 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         self.primary_names.clear()
         clear_box_children(self.primary_list_box)
         self._update_status()
+
+    def _on_remove_dependencies_clicked(self, _button: Gtk.Button) -> None:
+        dialog = Gtk.Dialog(title="Remove dependencies", transient_for=self, modal=True)
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("_Apply", Gtk.ResponseType.APPLY)
+
+        content_area = dialog.get_content_area()
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        content_box.set_margin_top(10)
+        content_box.set_margin_bottom(10)
+        content_box.set_margin_start(10)
+        content_box.set_margin_end(10)
+        content_area.append(content_box)
+
+        label = Gtk.Label(label="Dependency layers to check", xalign=0.0)
+        content_box.append(label)
+
+        adjustment = Gtk.Adjustment(value=1, lower=1, upper=10, step_increment=1, page_increment=1)
+        layers_input = Gtk.SpinButton(adjustment=adjustment, climb_rate=1, digits=0)
+        layers_input.set_numeric(True)
+        content_box.append(layers_input)
+
+        dialog.connect("response", self._on_remove_dependencies_response, layers_input)
+        dialog.show()
+
+    def _on_remove_dependencies_response(
+        self,
+        dialog: Gtk.Dialog,
+        response: int,
+        layers_input: Gtk.SpinButton,
+    ) -> None:
+        if response != Gtk.ResponseType.APPLY:
+            dialog.destroy()
+            return
+
+        layers = layers_input.get_value_as_int()
+        dialog.destroy()
+        if layers < 1:
+            return
+
+        self._remove_dependencies_from_primary(layers)
+
+    def _remove_dependencies_from_primary(self, layers: int) -> None:
+        cards = self._collect_package_cards_in_primary_panel()
+        if not cards:
+            return
+
+        primary_targets = [(card.node.installer, card.node.name) for card in cards]
+
+        def worker() -> None:
+            dependency_names = self._collect_dependency_names(primary_targets, layers)
+            if not dependency_names:
+                return
+
+            def apply_changes() -> bool:
+                for card in cards:
+                    if card.node.name in dependency_names:
+                        if card.node.name in self.primary_names:
+                            self.primary_names.remove(card.node.name)
+                        self.primary_list_box.remove(card)
+                self._update_status()
+                return False
+
+            GLib.idle_add(apply_changes)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _collect_dependency_names(
+        self,
+        primary_targets: list[tuple[str, str]],
+        layers: int,
+    ) -> set[str]:
+        all_dependency_names: set[str] = set()
+        current_targets = list(primary_targets)
+
+        for _ in range(layers):
+            dependency_lists = self._list_dependencies_for_targets(current_targets)
+            next_targets: list[tuple[str, str]] = []
+            next_names: set[str] = set()
+
+            for target, dependency_list in zip(current_targets, dependency_lists):
+                installer, _ = target
+                for dependency_name in dependency_list:
+                    if dependency_name in all_dependency_names:
+                        continue
+                    all_dependency_names.add(dependency_name)
+                    if dependency_name not in next_names:
+                        next_names.add(dependency_name)
+                        next_targets.append((installer, dependency_name))
+
+            if not next_targets:
+                break
+            current_targets = next_targets
+
+        return all_dependency_names
+
+    def _list_dependencies_for_targets(
+        self,
+        package_targets: list[tuple[str, str]],
+    ) -> list[list[str]]:
+        if not package_targets:
+            return []
+
+        installers = [installer for installer, _ in package_targets]
+        package_names = [package_name for _, package_name in package_targets]
+        max_workers = min(8, len(package_targets))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            return list(executor.map(list_dependencies, installers, package_names))
 
     def _on_clear_log(self, _button: Gtk.Button) -> None:
         buffer = self.log_view.get_buffer()
