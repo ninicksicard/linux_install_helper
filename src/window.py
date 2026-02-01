@@ -147,6 +147,11 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         export_search_list_button.add_css_class("flat")
         export_search_list_button.add_css_class("menu-item")
         export_search_list_button.set_has_frame(False)
+        export_search_list_button.set_halign(Gtk.Align.FILL)
+        export_search_list_button.set_hexpand(True)
+        export_search_list_label = export_search_list_button.get_child()
+        if isinstance(export_search_list_label, Gtk.Label):
+            export_search_list_label.set_xalign(0.0)
         export_search_list_button.connect("clicked", self._on_export_search_list_clicked)
         search_menu_box.append(export_search_list_button)
 
@@ -154,6 +159,11 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         add_all_button.add_css_class("flat")
         add_all_button.add_css_class("menu-item")
         add_all_button.set_has_frame(False)
+        add_all_button.set_halign(Gtk.Align.FILL)
+        add_all_button.set_hexpand(True)
+        add_all_label = add_all_button.get_child()
+        if isinstance(add_all_label, Gtk.Label):
+            add_all_label.set_xalign(0.0)
         add_all_button.connect("clicked", self._on_add_all_search_results_clicked)
         search_menu_box.append(add_all_button)
 
@@ -198,7 +208,6 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
             return
         self.default_installer = selected_item.get_string()
         self._update_primary_installer()
-        dropdown.popdown()
 
     def _update_primary_installer(self) -> None:
         cards = self._collect_package_cards_in_primary_panel()
@@ -265,6 +274,11 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         install_all_button.add_css_class("flat")
         install_all_button.add_css_class("menu-item")
         install_all_button.set_has_frame(False)
+        install_all_button.set_halign(Gtk.Align.FILL)
+        install_all_button.set_hexpand(True)
+        install_all_label = install_all_button.get_child()
+        if isinstance(install_all_label, Gtk.Label):
+            install_all_label.set_xalign(0.0)
         install_all_button.connect("clicked", self._on_install_all_primary_clicked)
         primary_menu_box.append(install_all_button)
 
@@ -272,6 +286,11 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         export_primary_list_button.add_css_class("flat")
         export_primary_list_button.add_css_class("menu-item")
         export_primary_list_button.set_has_frame(False)
+        export_primary_list_button.set_halign(Gtk.Align.FILL)
+        export_primary_list_button.set_hexpand(True)
+        export_primary_label = export_primary_list_button.get_child()
+        if isinstance(export_primary_label, Gtk.Label):
+            export_primary_label.set_xalign(0.0)
         export_primary_list_button.connect("clicked", self._on_export_primary_list_clicked)
         primary_menu_box.append(export_primary_list_button)
 
@@ -279,6 +298,11 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         remove_all_button.add_css_class("flat")
         remove_all_button.add_css_class("menu-item")
         remove_all_button.set_has_frame(False)
+        remove_all_button.set_halign(Gtk.Align.FILL)
+        remove_all_button.set_hexpand(True)
+        remove_all_label = remove_all_button.get_child()
+        if isinstance(remove_all_label, Gtk.Label):
+            remove_all_label.set_xalign(0.0)
         remove_all_button.connect("clicked", self._on_remove_all_primary_clicked)
         primary_menu_box.append(remove_all_button)
 
@@ -286,6 +310,11 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         remove_dependencies_button.add_css_class("flat")
         remove_dependencies_button.add_css_class("menu-item")
         remove_dependencies_button.set_has_frame(False)
+        remove_dependencies_button.set_halign(Gtk.Align.FILL)
+        remove_dependencies_button.set_hexpand(True)
+        remove_dependencies_label = remove_dependencies_button.get_child()
+        if isinstance(remove_dependencies_label, Gtk.Label):
+            remove_dependencies_label.set_xalign(0.0)
         remove_dependencies_button.connect("clicked", self._on_remove_dependencies_clicked)
         primary_menu_box.append(remove_dependencies_button)
 
@@ -813,9 +842,10 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         if self.primary_menu_popover is not None:
             self.primary_menu_popover.popdown()
 
-    def _on_primary_filter_selected(self, dropdown: Gtk.DropDown, _param_spec) -> None:
+    def _on_primary_filter_selected(self, _dropdown: Gtk.DropDown, _param_spec) -> None:
         self._apply_primary_filter()
-        dropdown.popdown()
+        if self.primary_menu_popover is not None:
+            self.primary_menu_popover.popdown()
 
     def _on_install_all_primary_clicked(self, _button: Gtk.Button) -> None:
         filter_mode = self._current_primary_filter()
