@@ -124,7 +124,7 @@ class PackageCard(Gtk.Frame):
             self.node.name,
             self.node.selected_version,
         )
-        self.command_entry.set_text(self.node.command_line)
+        self.set_command_text(self.node.command_line)
 
     def apply_installed_status(self, installed_version_value: str) -> None:
         previous_installed_version = self.node.installed_version
@@ -210,10 +210,12 @@ class PackageCard(Gtk.Frame):
         command_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.details_section.append(command_row)
 
-        self.command_entry = Gtk.Entry()
+        self.command_entry = Gtk.TextView()
+        self.command_entry.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         self.command_entry.set_hexpand(True)
-        self.command_entry.set_text(self.node.command_line)
-        self.command_entry.connect("changed", self._on_command_changed)
+        self.command_entry.set_vexpand(False)
+        self.set_command_text(self.node.command_line)
+        self.command_entry.get_buffer().connect("changed", self._on_command_changed)
         command_row.append(self.command_entry)
 
         run_button = Gtk.Button(label="Run")
@@ -245,6 +247,7 @@ class PackageCard(Gtk.Frame):
         actions_row.append(spacer)
 
         self.versions_dropdown = Gtk.DropDown(model=Gtk.StringList.new(["default", "latest"]))
+        self._configure_versions_dropdown()
         self.versions_dropdown.connect("notify::selected", self._on_version_selected)
         actions_row.append(self.versions_dropdown)
 
@@ -313,20 +316,19 @@ class PackageCard(Gtk.Frame):
         model = Gtk.StringList.new(self.node.versions)
 
         self._suppress_version_handler = True
-        try:
-            self.versions_dropdown.set_model(model)
+        self.versions_dropdown.set_model(model)
 
-            for index in range(model.get_n_items()):
-                item = model.get_item(index)
-                if item is None:
-                    continue
-                if item.get_string() == self.node.selected_version:
-                    self.versions_dropdown.set_selected(index)
-                    return
+        selected_index = 0
+        for index in range(model.get_n_items()):
+            item = model.get_item(index)
+            if item is None:
+                continue
+            if item.get_string() == self.node.selected_version:
+                selected_index = index
+                break
 
-            self.versions_dropdown.set_selected(0)
-        finally:
-            self._suppress_version_handler = False
+        self.versions_dropdown.set_selected(selected_index)
+        self._suppress_version_handler = False
 
     def _start_dependencies_load(self, force_reload: bool) -> None:
         if self._deps_loading:
@@ -407,8 +409,8 @@ class PackageCard(Gtk.Frame):
             return
         self.remove_from_primary_callback(self)
 
-    def _on_command_changed(self, entry: Gtk.Entry) -> None:
-        self.node.command_line = entry.get_text()
+    def _on_command_changed(self, _buffer: Gtk.TextBuffer) -> None:
+        self.node.command_line = self.get_command_text()
 
     def _on_run_command(self, _button: Gtk.Button) -> None:
         self.run_command_callback(self.node.command_line)
@@ -428,7 +430,7 @@ class PackageCard(Gtk.Frame):
             self.node.name,
             self.node.selected_version,
         )
-        self.command_entry.set_text(self.node.command_line)
+        self.set_command_text(self.node.command_line)
 
     def _refresh_installed_state(self) -> None:
         self.node.installed_version = helpers.installed_version(self.node.name)
@@ -443,17 +445,47 @@ class PackageCard(Gtk.Frame):
     def _on_install(self, _button: Gtk.Button) -> None:
         self.node.last_action = "install"
         self.node.command_line = build_command_line(self.node.installer, "install", self.node.name, self.node.selected_version)
-        self.command_entry.set_text(self.node.command_line)
+        self.set_command_text(self.node.command_line)
         self._refresh_installed_state()
 
     def _on_remove(self, _button: Gtk.Button) -> None:
         self.node.last_action = "remove"
         self.node.command_line = build_command_line(self.node.installer, "remove", self.node.name, self.node.selected_version)
-        self.command_entry.set_text(self.node.command_line)
+        self.set_command_text(self.node.command_line)
         self._refresh_installed_state()
 
     def _on_reinstall(self, _button: Gtk.Button) -> None:
         self.node.last_action = "reinstall"
         self.node.command_line = build_command_line(self.node.installer, "reinstall", self.node.name, self.node.selected_version)
-        self.command_entry.set_text(self.node.command_line)
+        self.set_command_text(self.node.command_line)
         self._refresh_installed_state()
+
+    def _configure_versions_dropdown(self) -> None:
+        factory = Gtk.SignalListItemFactory()
+        factory.connect("setup", self._on_versions_setup)
+        factory.connect("bind", self._on_versions_bind)
+        self.versions_dropdown.set_factory(factory)
+        self.versions_dropdown.set_list_factory(factory)
+
+    def _on_versions_setup(self, _factory: Gtk.SignalListItemFactory, list_item: Gtk.ListItem) -> None:
+        label = Gtk.Label(xalign=1.0)
+        label.set_ellipsize(Pango.EllipsizeMode.START)
+        label.set_single_line_mode(True)
+        label.set_hexpand(True)
+        list_item.set_child(label)
+
+    def _on_versions_bind(self, _factory: Gtk.SignalListItemFactory, list_item: Gtk.ListItem) -> None:
+        item = list_item.get_item()
+        label = list_item.get_child()
+        if item is None or label is None:
+            return
+        label.set_label(item.get_string())
+
+    def set_command_text(self, text: str) -> None:
+        buffer = self.command_entry.get_buffer()
+        buffer.set_text(text)
+
+    def get_command_text(self) -> str:
+        buffer = self.command_entry.get_buffer()
+        start, end = buffer.get_bounds()
+        return buffer.get_text(start, end, True)

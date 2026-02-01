@@ -77,10 +77,12 @@ def apply_css() -> None:
     .card .header-area label,
     .card .body label,
     .card .body entry,
+    .card .body textview,
     .card .body button,
     .card .body dropdown,
     .output-card label,
     .output-card entry,
+    .output-card textview,
     .output-card button,
     .output-card dropdown {
         font-size: 12px;

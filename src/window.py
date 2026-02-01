@@ -805,7 +805,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
                 card.node.name,
                 card.node.selected_version,
             )
-            card.command_entry.set_text(card.node.command_line)
+            card.set_command_text(card.node.command_line)
             self.run_and_log(card.node.command_line)
 
     def _on_remove_all_primary_clicked(self, _button: Gtk.Button) -> None:
