@@ -10,6 +10,7 @@ import os
 import shlex
 import subprocess
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Set
 
 import gi
@@ -262,6 +263,10 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         remove_all_button = Gtk.Button(label="Remove all")
         remove_all_button.connect("clicked", self._on_remove_all_primary_clicked)
         primary_menu_box.append(remove_all_button)
+
+        remove_dependencies_button = Gtk.Button(label="Remove dependencies")
+        remove_dependencies_button.connect("clicked", self._on_remove_dependencies_clicked)
+        primary_menu_box.append(remove_dependencies_button)
 
         primary_menu_popover.set_child(primary_menu_box)
         primary_menu_button.set_popover(primary_menu_popover)
@@ -806,6 +811,94 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
             return
         self.primary_names.clear()
         clear_box_children(self.primary_list_box)
+        self._update_status()
+
+    def _on_remove_dependencies_clicked(self, _button: Gtk.Button) -> None:
+        dialog = Gtk.Dialog(title="Remove dependencies", transient_for=self, modal=True)
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("_Apply", Gtk.ResponseType.APPLY)
+
+        content_box = dialog.get_content_area()
+        content_box.set_margin_top(12)
+        content_box.set_margin_bottom(12)
+        content_box.set_margin_start(12)
+        content_box.set_margin_end(12)
+        content_box.set_spacing(8)
+
+        description_label = Gtk.Label(
+            label="Dependency depth (number of layers to check):",
+            xalign=0.0,
+        )
+        content_box.append(description_label)
+
+        depth_adjustment = Gtk.Adjustment.new(1, 1, 10, 1, 1, 0)
+        depth_input = Gtk.SpinButton(adjustment=depth_adjustment, numeric=True)
+        depth_input.set_value(1)
+        content_box.append(depth_input)
+
+        dialog.connect("response", self._on_remove_dependencies_response, depth_input)
+        dialog.show()
+
+    def _on_remove_dependencies_response(
+        self,
+        dialog: Gtk.Dialog,
+        response: int,
+        depth_input: Gtk.SpinButton,
+    ) -> None:
+        if response != Gtk.ResponseType.APPLY:
+            dialog.destroy()
+            return
+        dependency_layers = depth_input.get_value_as_int()
+        dialog.destroy()
+        self._start_remove_dependencies(dependency_layers)
+
+    def _start_remove_dependencies(self, dependency_layers: int) -> None:
+        primary_package_names = self._collect_primary_list_names()
+        if not primary_package_names:
+            return
+
+        def collect_dependencies_for_name(package_name: str) -> list[str]:
+            return list_dependencies(self.default_installer, package_name)
+
+        def worker() -> None:
+            all_dependency_names: set[str] = set()
+            current_layer_names: set[str] = set(primary_package_names)
+
+            for _ in range(max(dependency_layers, 0)):
+                if not current_layer_names:
+                    break
+                with ThreadPoolExecutor() as executor:
+                    dependency_lists = list(
+                        executor.map(collect_dependencies_for_name, sorted(current_layer_names))
+                    )
+
+                next_layer_names: set[str] = set()
+                for dependency_list in dependency_lists:
+                    for dependency_name in dependency_list:
+                        if dependency_name and dependency_name not in all_dependency_names:
+                            next_layer_names.add(dependency_name)
+                        all_dependency_names.add(dependency_name)
+
+                current_layer_names = next_layer_names
+
+            def apply_updates() -> bool:
+                self._remove_primary_cards_by_name(all_dependency_names)
+                return False
+
+            GLib.idle_add(apply_updates)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _remove_primary_cards_by_name(self, names_to_remove: set[str]) -> None:
+        if not names_to_remove:
+            return
+        child = self.primary_list_box.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+            if isinstance(child, PackageCard) and child.node.name in names_to_remove:
+                self.primary_names.discard(child.node.name)
+                self.primary_list_box.remove(child)
+            child = next_child
         self._update_status()
 
     def _on_clear_log(self, _button: Gtk.Button) -> None:
