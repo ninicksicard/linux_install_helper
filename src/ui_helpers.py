@@ -70,6 +70,11 @@ def apply_css() -> None:
 
     /* Font size normalization: keep folded/unfolded sections visually consistent. */
     .card .header-area label,
+    .card .header-area .card-name {
+        min-width: 0px;
+    }
+
+    .card .header-area label,
     .card .body label,
     .card .body entry,
     .card .body button,

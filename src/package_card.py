@@ -71,6 +71,8 @@ class PackageCard(Gtk.Frame):
         self.name_label.set_ellipsize(Pango.EllipsizeMode.END)
         self.name_label.set_single_line_mode(True)
         self.name_label.set_hexpand(True)
+        self.name_label.set_overflow(Gtk.Overflow.HIDDEN)
+        self.name_label.add_css_class("card-name")
         self.header_area.append(self.name_label)
 
         self.add_button_folded = Gtk.Button(label="Add")
