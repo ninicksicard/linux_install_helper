@@ -19,7 +19,7 @@ import helpers
 from backend import build_command_line
 from install_indicator_pill import InstallIndicatorPill
 from models import PackageNode
-from ui_helpers import clear_box_children, is_descendant_of_button
+from ui_helpers import clear_box_children, close_dropdown_popover, is_descendant_of_button
 
 
 class PackageCard(Gtk.Frame):
@@ -389,6 +389,7 @@ class PackageCard(Gtk.Frame):
 
     def _on_dependency_filter_selected(self, _dropdown: Gtk.DropDown, _param_spec) -> None:
         self._rebuild_dependencies_list()
+        close_dropdown_popover(self.dependencies_filter_dropdown)
 
     def _on_add_listed_dependencies(self, _button: Gtk.Button) -> None:
         if self._deps_loading or not self.node.dependencies_loaded:
@@ -431,6 +432,7 @@ class PackageCard(Gtk.Frame):
             self.node.selected_version,
         )
         self.set_command_text(self.node.command_line)
+        close_dropdown_popover(dropdown)
 
     def _refresh_installed_state(self) -> None:
         self.node.installed_version = helpers.installed_version(self.node.name)

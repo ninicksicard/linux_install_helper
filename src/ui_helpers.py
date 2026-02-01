@@ -68,6 +68,18 @@ def apply_css() -> None:
         padding: 6px;
     }
 
+    .menu-popover button {
+        border: none;
+        background: transparent;
+        box-shadow: none;
+        padding: 4px 8px;
+        border-radius: 6px;
+    }
+
+    .menu-popover button:hover {
+        background-color: rgba(127, 127, 127, 0.15);
+    }
+
     /* Font size normalization: keep folded/unfolded sections visually consistent. */
     .card .header-area label,
     .card .header-area .card-name {
@@ -138,3 +150,13 @@ def unique_preserve_order(values: list[str]) -> list[str]:
         seen.add(value)
         output_values.append(value)
     return output_values
+
+
+def close_dropdown_popover(dropdown: Gtk.DropDown) -> None:
+    popover_getter = getattr(dropdown, "get_popover", None)
+    if popover_getter is None:
+        return
+    popover = popover_getter()
+    if popover is None:
+        return
+    popover.popdown()

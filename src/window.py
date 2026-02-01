@@ -33,7 +33,7 @@ from backend import (
 )
 from models import PackageNode
 from package_card import PackageCard
-from ui_helpers import clear_box_children, unique_preserve_order
+from ui_helpers import clear_box_children, close_dropdown_popover, unique_preserve_order
 
 
 def ensure_dependencies_for_node(node: PackageNode) -> None:
@@ -138,17 +138,18 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
 
         search_menu_popover = Gtk.Popover()
         search_menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        search_menu_box.add_css_class("menu-popover")
         search_menu_box.set_margin_top(6)
         search_menu_box.set_margin_bottom(6)
         search_menu_box.set_margin_start(6)
         search_menu_box.set_margin_end(6)
 
         export_search_list_button = Gtk.Button(label="Export list")
-        export_search_list_button.connect("clicked", self._on_export_search_list_clicked)
+        export_search_list_button.connect("clicked", self._on_export_search_list_clicked, search_menu_popover)
         search_menu_box.append(export_search_list_button)
 
         add_all_button = Gtk.Button(label="Add all")
-        add_all_button.connect("clicked", self._on_add_all_search_results_clicked)
+        add_all_button.connect("clicked", self._on_add_all_search_results_clicked, search_menu_popover)
         search_menu_box.append(add_all_button)
 
         search_menu_popover.set_child(search_menu_box)
@@ -192,6 +193,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
             return
         self.default_installer = selected_item.get_string()
         self._update_primary_installer()
+        close_dropdown_popover(dropdown)
 
     def _update_primary_installer(self) -> None:
         cards = self._collect_package_cards_in_primary_panel()
@@ -243,6 +245,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
 
         primary_menu_popover = Gtk.Popover()
         primary_menu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        primary_menu_box.add_css_class("menu-popover")
         primary_menu_box.set_margin_top(6)
         primary_menu_box.set_margin_bottom(6)
         primary_menu_box.set_margin_start(6)
@@ -255,19 +258,19 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         primary_menu_box.append(self.primary_filter_dropdown)
 
         install_all_button = Gtk.Button(label="Install all")
-        install_all_button.connect("clicked", self._on_install_all_primary_clicked)
+        install_all_button.connect("clicked", self._on_install_all_primary_clicked, primary_menu_popover)
         primary_menu_box.append(install_all_button)
 
         export_primary_list_button = Gtk.Button(label="Export list")
-        export_primary_list_button.connect("clicked", self._on_export_primary_list_clicked)
+        export_primary_list_button.connect("clicked", self._on_export_primary_list_clicked, primary_menu_popover)
         primary_menu_box.append(export_primary_list_button)
 
         remove_all_button = Gtk.Button(label="Remove all")
-        remove_all_button.connect("clicked", self._on_remove_all_primary_clicked)
+        remove_all_button.connect("clicked", self._on_remove_all_primary_clicked, primary_menu_popover)
         primary_menu_box.append(remove_all_button)
 
         remove_dependencies_button = Gtk.Button(label="Remove dependencies")
-        remove_dependencies_button.connect("clicked", self._on_remove_dependencies_clicked)
+        remove_dependencies_button.connect("clicked", self._on_remove_dependencies_clicked, primary_menu_popover)
         primary_menu_box.append(remove_dependencies_button)
 
         primary_menu_popover.set_child(primary_menu_box)
@@ -722,14 +725,16 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
     def _on_search_add_clicked(self, _button: Gtk.Button, package_name: str) -> None:
         self.queue_add_primary_from_text(package_name)
 
-    def _on_add_all_search_results_clicked(self, _button: Gtk.Button) -> None:
+    def _on_add_all_search_results_clicked(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
         if not self.search_results:
             return
         for package_name in self.search_results:
             self.queue_add_primary_from_text(package_name)
+        popover.popdown()
 
-    def _on_export_search_list_clicked(self, _button: Gtk.Button) -> None:
+    def _on_export_search_list_clicked(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
         self._open_export_dialog(self.search_results, "search-results.txt")
+        popover.popdown()
 
     def _on_add_primary_clicked(self, _button: Gtk.Button) -> None:
         text = self.add_entry.get_text().strip()
@@ -785,13 +790,15 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
                 if segment_text:
                     self.queue_add_primary_from_text(segment_text)
 
-    def _on_export_primary_list_clicked(self, _button: Gtk.Button) -> None:
+    def _on_export_primary_list_clicked(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
         self._open_export_dialog(self._collect_primary_list_names(), "primary-packages.txt")
+        popover.popdown()
 
     def _on_primary_filter_selected(self, _dropdown: Gtk.DropDown, _param_spec) -> None:
         self._apply_primary_filter()
+        close_dropdown_popover(self.primary_filter_dropdown)
 
-    def _on_install_all_primary_clicked(self, _button: Gtk.Button) -> None:
+    def _on_install_all_primary_clicked(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
         filter_mode = self._current_primary_filter()
         for card in self._collect_primary_cards():
             if filter_mode == "installed" and not card.node.installed:
@@ -807,15 +814,17 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
             )
             card.set_command_text(card.node.command_line)
             self.run_and_log(card.node.command_line)
+        popover.popdown()
 
-    def _on_remove_all_primary_clicked(self, _button: Gtk.Button) -> None:
+    def _on_remove_all_primary_clicked(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
         if not self.primary_names:
             return
         self.primary_names.clear()
         clear_box_children(self.primary_list_box)
         self._update_status()
+        popover.popdown()
 
-    def _on_remove_dependencies_clicked(self, _button: Gtk.Button) -> None:
+    def _on_remove_dependencies_clicked(self, _button: Gtk.Button, popover: Gtk.Popover) -> None:
         dialog = Gtk.Dialog(title="Remove dependencies", transient_for=self, modal=True)
         cancel_button = dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
         apply_button = dialog.add_button("_Apply", Gtk.ResponseType.APPLY)
@@ -852,6 +861,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
             cancel_button,
         )
         dialog.show()
+        popover.popdown()
 
     def _on_remove_dependencies_response(
         self,
