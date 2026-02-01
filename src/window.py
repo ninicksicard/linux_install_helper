@@ -66,6 +66,8 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
 
         self._refresh_status_thread_running = False
         self._add_from_file_dialog: Gtk.FileChooserNative | None = None
+        self._remove_dependencies_cancel_event: threading.Event | None = None
+        self._remove_dependencies_progress_source_id: int | None = None
 
         root_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         root_box.set_margin_top(10)
@@ -816,7 +818,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
     def _on_remove_dependencies_clicked(self, _button: Gtk.Button) -> None:
         dialog = Gtk.Dialog(title="Remove dependencies", transient_for=self, modal=True)
         dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
-        dialog.add_button("_Apply", Gtk.ResponseType.APPLY)
+        apply_button = dialog.add_button("_Apply", Gtk.ResponseType.APPLY)
 
         content_box = dialog.get_content_area()
         content_box.set_margin_top(12)
@@ -836,7 +838,18 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         depth_input.set_value(1)
         content_box.append(depth_input)
 
-        dialog.connect("response", self._on_remove_dependencies_response, depth_input)
+        progress_bar = Gtk.ProgressBar()
+        progress_bar.set_show_text(True)
+        progress_bar.set_visible(False)
+        content_box.append(progress_bar)
+
+        dialog.connect(
+            "response",
+            self._on_remove_dependencies_response,
+            depth_input,
+            progress_bar,
+            apply_button,
+        )
         dialog.show()
 
     def _on_remove_dependencies_response(
@@ -844,18 +857,52 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         dialog: Gtk.Dialog,
         response: int,
         depth_input: Gtk.SpinButton,
+        progress_bar: Gtk.ProgressBar,
+        apply_button: Gtk.Button,
     ) -> None:
+        if response == Gtk.ResponseType.CANCEL:
+            if self._remove_dependencies_cancel_event is None:
+                dialog.destroy()
+                return
+            self._remove_dependencies_cancel_event.set()
+            progress_bar.set_text("Canceling...")
+            apply_button.set_sensitive(False)
+            depth_input.set_sensitive(False)
+            return
         if response != Gtk.ResponseType.APPLY:
-            dialog.destroy()
+            return
+        if self._remove_dependencies_cancel_event is not None:
             return
         dependency_layers = depth_input.get_value_as_int()
-        dialog.destroy()
-        self._start_remove_dependencies(dependency_layers)
+        cancel_event = threading.Event()
+        self._remove_dependencies_cancel_event = cancel_event
+        progress_bar.set_text("Working...")
+        progress_bar.set_visible(True)
+        apply_button.set_sensitive(False)
+        depth_input.set_sensitive(False)
+        self._start_remove_dependencies(
+            dependency_layers,
+            cancel_event,
+            dialog,
+            progress_bar,
+            apply_button,
+            depth_input,
+        )
 
-    def _start_remove_dependencies(self, dependency_layers: int) -> None:
+    def _start_remove_dependencies(
+        self,
+        dependency_layers: int,
+        cancel_event: threading.Event,
+        dialog: Gtk.Dialog,
+        progress_bar: Gtk.ProgressBar,
+        apply_button: Gtk.Button,
+        depth_input: Gtk.SpinButton,
+    ) -> None:
         primary_package_names = self._collect_primary_list_names()
         if not primary_package_names:
+            self._finish_remove_dependencies(dialog, progress_bar, apply_button, depth_input)
             return
+        self._start_remove_dependencies_progress(progress_bar)
 
         def collect_dependencies_for_name(package_name: str) -> list[str]:
             return list_dependencies(self.default_installer, package_name)
@@ -865,6 +912,8 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
             current_layer_names: set[str] = set(primary_package_names)
 
             for _ in range(max(dependency_layers, 0)):
+                if cancel_event.is_set():
+                    break
                 if not current_layer_names:
                     break
                 with ThreadPoolExecutor() as executor:
@@ -874,7 +923,11 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
 
                 next_layer_names: set[str] = set()
                 for dependency_list in dependency_lists:
+                    if cancel_event.is_set():
+                        break
                     for dependency_name in dependency_list:
+                        if cancel_event.is_set():
+                            break
                         if dependency_name and dependency_name not in all_dependency_names:
                             next_layer_names.add(dependency_name)
                         all_dependency_names.add(dependency_name)
@@ -882,12 +935,50 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
                 current_layer_names = next_layer_names
 
             def apply_updates() -> bool:
-                self._remove_primary_cards_by_name(all_dependency_names)
+                if not cancel_event.is_set():
+                    self._remove_primary_cards_by_name(all_dependency_names)
+                self._finish_remove_dependencies(
+                    dialog,
+                    progress_bar,
+                    apply_button,
+                    depth_input,
+                )
                 return False
 
             GLib.idle_add(apply_updates)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _start_remove_dependencies_progress(self, progress_bar: Gtk.ProgressBar) -> None:
+        if self._remove_dependencies_progress_source_id is not None:
+            return
+
+        def pulse() -> bool:
+            progress_bar.pulse()
+            return True
+
+        self._remove_dependencies_progress_source_id = GLib.timeout_add(100, pulse)
+
+    def _stop_remove_dependencies_progress(self) -> None:
+        if self._remove_dependencies_progress_source_id is None:
+            return
+        GLib.source_remove(self._remove_dependencies_progress_source_id)
+        self._remove_dependencies_progress_source_id = None
+
+    def _finish_remove_dependencies(
+        self,
+        dialog: Gtk.Dialog,
+        progress_bar: Gtk.ProgressBar,
+        apply_button: Gtk.Button,
+        depth_input: Gtk.SpinButton,
+    ) -> None:
+        self._stop_remove_dependencies_progress()
+        self._remove_dependencies_cancel_event = None
+        progress_bar.set_visible(False)
+        progress_bar.set_fraction(0.0)
+        apply_button.set_sensitive(True)
+        depth_input.set_sensitive(True)
+        dialog.destroy()
 
     def _remove_primary_cards_by_name(self, names_to_remove: set[str]) -> None:
         if not names_to_remove:
