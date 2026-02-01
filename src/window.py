@@ -20,6 +20,7 @@ from gi.repository import GLib, Gtk, Pango
 
 import helpers
 from backend import (
+    build_command_line,
     create_node,
     detect_default_installer,
     list_available_installers,
@@ -244,6 +245,16 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         primary_menu_box.set_margin_start(6)
         primary_menu_box.set_margin_end(6)
 
+        self.primary_filter_dropdown = Gtk.DropDown(
+            model=Gtk.StringList.new(["all", "installed", "not installed"])
+        )
+        self.primary_filter_dropdown.connect("notify::selected", self._on_primary_filter_selected)
+        primary_menu_box.append(self.primary_filter_dropdown)
+
+        install_all_button = Gtk.Button(label="Install all")
+        install_all_button.connect("clicked", self._on_install_all_primary_clicked)
+        primary_menu_box.append(install_all_button)
+
         export_primary_list_button = Gtk.Button(label="Export list")
         export_primary_list_button.connect("clicked", self._on_export_primary_list_clicked)
         primary_menu_box.append(export_primary_list_button)
@@ -426,6 +437,35 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
 
         return names
 
+    def _collect_primary_cards(self) -> list[PackageCard]:
+        cards: list[PackageCard] = []
+        child = self.primary_list_box.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+
+            if isinstance(child, PackageCard):
+                cards.append(child)
+
+            child = next_child
+
+        return cards
+
+    def _current_primary_filter(self) -> str:
+        selected_item = self.primary_filter_dropdown.get_selected_item()
+        if selected_item is None:
+            return "all"
+        return selected_item.get_string()
+
+    def _apply_primary_filter(self) -> None:
+        filter_mode = self._current_primary_filter()
+        for card in self._collect_primary_cards():
+            visible = True
+            if filter_mode == "installed":
+                visible = card.node.installed
+            elif filter_mode == "not installed":
+                visible = not card.node.installed
+            card.set_visible(visible)
+
     def _open_export_dialog(self, items: list[str], suggested_name: str) -> None:
         if not items:
             self.append_log("[export] No items to export.\n")
@@ -495,6 +535,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
                 for card, installed_version_value in updates:
                     card.apply_installed_status(installed_version_value)
 
+                self._apply_primary_filter()
                 self._refresh_status_thread_running = False
                 self.refresh_all_status_button.set_sensitive(True)
                 self.refresh_all_status_button.set_label("Refresh status")
@@ -534,6 +575,7 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
                     run_command_callback=self.run_and_log,
                 )
                 self.primary_list_box.append(card)
+                self._apply_primary_filter()
                 self._update_status()
                 return False
 
@@ -738,6 +780,26 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
 
     def _on_export_primary_list_clicked(self, _button: Gtk.Button) -> None:
         self._open_export_dialog(self._collect_primary_list_names(), "primary-packages.txt")
+
+    def _on_primary_filter_selected(self, _dropdown: Gtk.DropDown, _param_spec) -> None:
+        self._apply_primary_filter()
+
+    def _on_install_all_primary_clicked(self, _button: Gtk.Button) -> None:
+        filter_mode = self._current_primary_filter()
+        for card in self._collect_primary_cards():
+            if filter_mode == "installed" and not card.node.installed:
+                continue
+            if filter_mode == "not installed" and card.node.installed:
+                continue
+            card.node.last_action = "install"
+            card.node.command_line = build_command_line(
+                card.node.installer,
+                "install",
+                card.node.name,
+                card.node.selected_version,
+            )
+            card.command_entry.set_text(card.node.command_line)
+            self.run_and_log(card.node.command_line)
 
     def _on_remove_all_primary_clicked(self, _button: Gtk.Button) -> None:
         if not self.primary_names:
