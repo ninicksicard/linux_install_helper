@@ -111,6 +111,16 @@ class PackageCard(Gtk.Frame):
 
         return cards
 
+    def update_installer(self, installer: str) -> None:
+        self.node.installer = installer
+        self.node.command_line = build_command_line(
+            installer,
+            self.node.last_action,
+            self.node.name,
+            self.node.selected_version,
+        )
+        self.command_entry.set_text(self.node.command_line)
+
     def apply_installed_status(self, installed_version_value: str) -> None:
         previous_installed_version = self.node.installed_version
 

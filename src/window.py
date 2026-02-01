@@ -187,6 +187,12 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         if selected_item is None:
             return
         self.default_installer = selected_item.get_string()
+        self._update_primary_installer()
+
+    def _update_primary_installer(self) -> None:
+        cards = self._collect_package_cards_in_primary_panel()
+        for card in cards:
+            card.update_installer(self.default_installer)
 
     def _build_primary_panel(self) -> Gtk.Widget:
         container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
