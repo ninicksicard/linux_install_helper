@@ -10,6 +10,7 @@ import os
 import shlex
 import subprocess
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Set
 
 import gi
@@ -252,6 +253,10 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         remove_all_button.connect("clicked", self._on_remove_all_primary_clicked)
         primary_menu_box.append(remove_all_button)
 
+        remove_dependencies_button = Gtk.Button(label="Remove dependencies")
+        remove_dependencies_button.connect("clicked", self._on_remove_dependencies_clicked)
+        primary_menu_box.append(remove_dependencies_button)
+
         primary_menu_popover.set_child(primary_menu_box)
         primary_menu_button.set_popover(primary_menu_popover)
 
@@ -425,6 +430,19 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
             child = next_child
 
         return names
+
+    def _collect_primary_cards(self) -> list[PackageCard]:
+        cards: list[PackageCard] = []
+        child = self.primary_list_box.get_first_child()
+        while child is not None:
+            next_child = child.get_next_sibling()
+
+            if isinstance(child, PackageCard):
+                cards.append(child)
+
+            child = next_child
+
+        return cards
 
     def _open_export_dialog(self, items: list[str], suggested_name: str) -> None:
         if not items:
@@ -745,6 +763,87 @@ class InstallHelperWindow(Gtk.ApplicationWindow):
         self.primary_names.clear()
         clear_box_children(self.primary_list_box)
         self._update_status()
+
+    def _on_remove_dependencies_clicked(self, _button: Gtk.Button) -> None:
+        dialog = Gtk.Dialog(title="Remove dependencies", transient_for=self, modal=True)
+        dialog.add_button("_Cancel", Gtk.ResponseType.CANCEL)
+        dialog.add_button("_Apply", Gtk.ResponseType.OK)
+
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        content.set_margin_top(12)
+        content.set_margin_bottom(12)
+        content.set_margin_start(12)
+        content.set_margin_end(12)
+
+        label = Gtk.Label(label="Dependency depth", xalign=0.0)
+        content.append(label)
+
+        adjustment = Gtk.Adjustment(value=1, lower=1, upper=10, step_increment=1, page_increment=1)
+        depth_input = Gtk.SpinButton(adjustment=adjustment, climb_rate=1, digits=0)
+        depth_input.set_numeric(True)
+        content.append(depth_input)
+
+        dialog.set_child(content)
+        dialog.connect("response", self._on_remove_dependencies_response, depth_input)
+        dialog.present()
+
+    def _on_remove_dependencies_response(
+        self,
+        dialog: Gtk.Dialog,
+        response: int,
+        depth_input: Gtk.SpinButton,
+    ) -> None:
+        if response == Gtk.ResponseType.OK:
+            depth = depth_input.get_value_as_int()
+            self._start_remove_dependencies(depth)
+        dialog.destroy()
+
+    def _start_remove_dependencies(self, depth: int) -> None:
+        if depth < 1:
+            return
+
+        primary_cards = self._collect_primary_cards()
+        if not primary_cards:
+            return
+
+        primary_items = [(card.node.installer, card.node.name) for card in primary_cards]
+
+        def list_dependencies_for_item(item: tuple[str, str]) -> list[str]:
+            installer, name = item
+            return list_dependencies(installer, name)
+
+        def worker() -> None:
+            dependency_names: set[str] = set()
+            current_items = list(primary_items)
+            for _ in range(depth):
+                if not current_items:
+                    break
+                with ThreadPoolExecutor() as executor:
+                    results = list(executor.map(list_dependencies_for_item, current_items))
+
+                next_items: set[tuple[str, str]] = set()
+                for item, names in zip(current_items, results):
+                    for name in names:
+                        if not name:
+                            continue
+                        dependency_names.add(name)
+                        next_items.add((item[0], name))
+                current_items = list(next_items)
+
+            def apply_updates() -> bool:
+                removed_any = False
+                for card in primary_cards:
+                    if card.node.name in dependency_names:
+                        removed_any = True
+                        self.primary_names.discard(card.node.name)
+                        self.primary_list_box.remove(card)
+                if removed_any:
+                    self._update_status()
+                return False
+
+            GLib.idle_add(apply_updates)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _on_clear_log(self, _button: Gtk.Button) -> None:
         buffer = self.log_view.get_buffer()
