@@ -28,6 +28,10 @@ def apply_css() -> None:
         padding: 10px;
     }
 
+    .header-area .card-name {
+        overflow: hidden;
+    }
+
     .body {
         padding: 10px;
         border-top: 1px solid rgba(128, 128, 128, 0.25);
