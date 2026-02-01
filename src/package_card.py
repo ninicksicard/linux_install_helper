@@ -387,8 +387,9 @@ class PackageCard(Gtk.Frame):
             return
         self._toggle_dependencies()
 
-    def _on_dependency_filter_selected(self, _dropdown: Gtk.DropDown, _param_spec) -> None:
+    def _on_dependency_filter_selected(self, dropdown: Gtk.DropDown, _param_spec) -> None:
         self._rebuild_dependencies_list()
+        dropdown.popdown()
 
     def _on_add_listed_dependencies(self, _button: Gtk.Button) -> None:
         if self._deps_loading or not self.node.dependencies_loaded:
@@ -431,6 +432,7 @@ class PackageCard(Gtk.Frame):
             self.node.selected_version,
         )
         self.set_command_text(self.node.command_line)
+        dropdown.popdown()
 
     def _refresh_installed_state(self) -> None:
         self.node.installed_version = helpers.installed_version(self.node.name)

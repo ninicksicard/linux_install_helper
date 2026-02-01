@@ -96,6 +96,17 @@ def apply_css() -> None:
     entry {
         border-radius: 8px;
     }
+
+    .menu-item {
+        background-color: transparent;
+        border: none;
+        border-radius: 6px;
+        padding: 6px 10px;
+    }
+
+    .menu-item:hover {
+        background-color: rgba(128, 128, 128, 0.12);
+    }
     """
 
     provider = Gtk.CssProvider()
